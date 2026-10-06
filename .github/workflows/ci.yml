@@ -1,0 +1,49 @@
+name: test
+
+on: [push, pull_request, workflow_dispatch]
+
+permissions:
+  contents: read
+
+jobs:
+  # The runtime and the app core under ASan/UBSan, on both hosts. Filo is
+  # a sibling checkout, as it is on a developer's disk.
+  test:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
+    env:
+      CC: clang
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: filo-term
+      - uses: actions/checkout@v4
+        with:
+          repository: crgimenes/clang_filo
+          path: clang_filo
+      - run: make -C filo-term all test
+
+  # Format and the two static analyzers, warnings as errors, with the LLVM
+  # the local make qa runs (their checks change between versions).
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: filo-term
+      - uses: actions/checkout@v4
+        with:
+          repository: crgimenes/clang_filo
+          path: clang_filo
+      - name: Install tools
+        run: |
+          wget -qO llvm.sh https://apt.llvm.org/llvm.sh
+          sudo bash llvm.sh 23
+          sudo apt-get install -y clang-format-23 clang-tidy-23 cppcheck
+      - run: make -C filo-term fmt-check tidy check CLANG_FORMAT=clang-format-23 CLANG_TIDY=clang-tidy-23
