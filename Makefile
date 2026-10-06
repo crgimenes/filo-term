@@ -19,7 +19,9 @@ FILOSRC = $(addprefix $(FILO)/,filo.c filo_math.c filo_strings.c filo_nolibc.c)
 APPSRC = $(addprefix src/,term.c canvas.c utf8.c keyin.c paint.c field.c app.c)
 HDRS = $(wildcard src/*.h) $(FILO)/filo.h
 OBJ = $(patsubst src/%.c,build/%.o,$(SRC))
-TIDY_CHECKS = bugprone-*,cert-*,clang-analyzer-*,readability-*,-readability-identifier-length,-readability-function-cognitive-complexity,-readability-magic-numbers,-cert-err33-c,-readability-else-after-return,-readability-simplify-boolean-expr,-bugprone-easily-swappable-parameters,-clang-analyzer-optin.performance.Padding
+# The analyzer's insecureAPI check wants C11 Annex K (memcpy_s, snprintf_s),
+# which no libc this builds on has: off, as in Filo's own gate.
+TIDY_CHECKS = bugprone-*,cert-*,clang-analyzer-*,readability-*,-readability-identifier-length,-readability-function-cognitive-complexity,-readability-magic-numbers,-cert-err33-c,-readability-else-after-return,-readability-simplify-boolean-expr,-bugprone-easily-swappable-parameters,-clang-analyzer-optin.performance.Padding,-clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling
 
 .PHONY: all test fmt fmt-check tidy check qa clean
 
