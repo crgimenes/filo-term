@@ -250,12 +250,15 @@ static void test_cell_packs_into_one_word(void) {
     uint64_t was = c->raw;
     cv_pen(&WORK, CV_COLOR_DEFAULT, 255, CV_A_BOLD | CV_A_DIM);
     (void)cv_put(&WORK, 0, 0, cv_cstr("\xf4\x8f\xbf\xbf"));
+    /* cv_put wrote the cell c points at: cppcheck does not follow it there */
+    // cppcheck-suppress knownConditionTrueFalse
     check(c->raw != was, "raw sees a change of attribute");
     cv_pen(&WORK, 1, 255, CV_A_BOLD | CV_A_DIM);
     (void)cv_put(&WORK, 0, 0, cv_cstr("\xf4\x8f\xbf\xbf"));
     uint64_t fg1 = c->raw;
     cv_pen(&WORK, 2, 255, CV_A_BOLD | CV_A_DIM);
     (void)cv_put(&WORK, 0, 0, cv_cstr("\xf4\x8f\xbf\xbf"));
+    // cppcheck-suppress knownConditionTrueFalse
     check(c->raw != fg1, "raw sees a change of colour");
 }
 
