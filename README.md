@@ -1,13 +1,14 @@
 # filo-term
 
 The terminal a Filo program runs on, apart from any program: the pieces a
-host links to give a [Filo](https://github.com/crgimenes/clang_filo)
-program a screen, keys and a text to work on, and the app core and POSIX
-loop that make a Filo program a program of its own (`app`, `tty`). The
-[rocchetto](https://github.com/crgimenes/rocchetto) shell, the `edt`
-editor, [corewar](https://github.com/crgimenes/corewar) and
-[filo-games](https://github.com/crgimenes/filo-games) build these sources
-as their own.
+host links to give a [Filo](https://github.com/crgimenes/clang_filo) program
+a screen, keys and a text to work on, and the app core and POSIX loop that
+make a Filo program a program of its own (`app`, `tty`). The
+[rocchetto](https://github.com/crgimenes/rocchetto) shell, the
+[edt](https://github.com/crgimenes/edt) editor,
+[corewar](https://github.com/crgimenes/corewar) and
+[filo-games](https://github.com/crgimenes/filo-games) build these sources as
+their own.
 
 | file | what it is |
 | --- | --- |
