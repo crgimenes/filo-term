@@ -181,6 +181,13 @@ int tty_main(int argc, char **argv, app *a, const app_spec *spec, const uint8_t 
         fputs(usage, stdout);
         return 0;
     }
+    if (argc == 2 && strcmp(argv[1], "--version") == 0) {
+        fputs(spec->name, stdout);
+        fputs(" ", stdout);
+        fputs(spec->version != NULL ? spec->version : "dev", stdout);
+        fputs("\n", stdout);
+        return 0;
+    }
     if (argc > 2) {
         fputs(usage, stderr);
         return 2;
