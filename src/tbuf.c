@@ -28,6 +28,7 @@ void tb_init(tbuf *t) {
     t->left = 0;
     t->dirty = false;
     t->changed = 0;
+    t->undo_len = 0;
     reindex(t);
 }
 
@@ -35,6 +36,189 @@ static void touched(tbuf *t, size_t off) {
     if (off < t->changed) {
         t->changed = off;
     }
+}
+
+/* The two edits everything comes down to, undo included. */
+static void remove_range(tbuf *t, size_t a, size_t b) {
+    touched(t, a);
+    memmove(t->text + a, t->text + b, t->len - b);
+    t->len -= b - a;
+    t->dirty = true;
+    reindex(t);
+}
+
+static void put(tbuf *t, size_t off, const uint8_t *bytes, size_t n) {
+    touched(t, off);
+    memmove(t->text + off + n, t->text + off, t->len - off);
+    memcpy(t->text + off, bytes, n);
+    t->len += n;
+    t->dirty = true;
+    reindex(t);
+}
+
+/* ---- undo ----
+   A record is laid down as the bytes it keeps followed by its header, so
+   the newest is read from the end. An insertion keeps nothing (taking it
+   back deletes off..off+n), a deletion what it deleted, an overwrite what
+   was there before. */
+enum { U_INS, U_DEL, U_SET };
+
+typedef struct {
+    size_t off;
+    size_t n;
+    size_t cur; /* the cursor before the edit */
+    uint8_t kind;
+    bool chain; /* undone together with the record below it */
+} undo_rec;
+
+static size_t kept(const undo_rec *r) {
+    return r->kind == U_INS ? 0 : r->n;
+}
+
+/* The record that ends at end. */
+static bool record_at(const tbuf *t, size_t end, undo_rec *r) {
+    if (end < sizeof(*r)) {
+        return false;
+    }
+    memcpy(r, t->undo + end - sizeof(*r), sizeof(*r));
+    return true;
+}
+
+/* The newest record, r, made k bytes longer; what it keeps of them is
+   written in place already. */
+static void grow(tbuf *t, undo_rec *r, size_t k) {
+    size_t was = kept(r);
+    r->n += k;
+    t->undo_len += kept(r) - was;
+    memcpy(t->undo + t->undo_len - sizeof(*r), r, sizeof(*r));
+}
+
+/* The oldest records dropped so room bytes are free: the newest that fit in
+   half of the rest stay, so a full log is not walked on every key. A record
+   undone with the one below it does not outlive that one. */
+static void make_room(tbuf *t, size_t room) {
+    size_t keep = (TB_UNDO - room) / 2;
+    size_t from = t->undo_len;
+    undo_rec r;
+    undo_rec oldest = {0};
+    while (record_at(t, from, &r) && t->undo_len - (from - sizeof(r) - kept(&r)) <= keep) {
+        from -= sizeof(r) + kept(&r);
+        oldest = r;
+    }
+    if (from < t->undo_len && oldest.chain) {
+        from += sizeof(oldest) + kept(&oldest);
+    }
+    memmove(t->undo, t->undo + from, t->undo_len - from);
+    t->undo_len -= from;
+}
+
+/* False when the record was not kept. One larger than the whole log
+   empties it: the older records undo from a text that will not come back. */
+static bool push(tbuf *t, undo_rec r, const uint8_t *bytes) {
+    size_t size = sizeof(r) + kept(&r);
+    if (size > TB_UNDO) {
+        t->undo_len = 0;
+        return false;
+    }
+    if (TB_UNDO - t->undo_len < size) {
+        make_room(t, size);
+    }
+    if (r.chain && t->undo_len == 0) {
+        return false; /* what it is undone with is gone */
+    }
+    if (kept(&r) > 0) {
+        memcpy(t->undo + t->undo_len, bytes, kept(&r));
+    }
+    t->undo_len += kept(&r);
+    memcpy(t->undo + t->undo_len, &r, sizeof(r));
+    t->undo_len += sizeof(r);
+    return true;
+}
+
+/* n bytes about to go in at off. A rune typed right after the last
+   insertion joins it, up to the end of a line. */
+static void log_insert(tbuf *t, size_t off, size_t n, bool chain) {
+    undo_rec r;
+    if (!chain && n <= 4 && off > 0 && t->text[off - 1] != '\n' && record_at(t, t->undo_len, &r) &&
+        r.kind == U_INS && r.off + r.n == off) {
+        grow(t, &r, n);
+        return;
+    }
+    (void)push(t, (undo_rec){.off = off, .n = n, .cur = t->cur, .kind = U_INS, .chain = chain},
+               t->text);
+}
+
+/* a..b about to be deleted. With join, a rune next to the last deletion,
+   deleted the same way, joins it: before it for backspace, after it for
+   delete. */
+static void log_erase(tbuf *t, size_t a, size_t b, bool join) {
+    size_t k = b - a;
+    undo_rec r;
+    if (join && k <= 4 && record_at(t, t->undo_len, &r) && r.kind == U_DEL &&
+        TB_UNDO - t->undo_len >= k) {
+        uint8_t *start = t->undo + t->undo_len - sizeof(r) - r.n;
+        if (b == r.off && t->cur == b && r.cur == r.off + r.n) {
+            memmove(start + k, start, r.n);
+            memcpy(start, t->text + a, k);
+            r.off = a;
+            grow(t, &r, k);
+            return;
+        }
+        if (a == r.off && t->cur == a && r.cur == r.off) {
+            memcpy(start + r.n, t->text + a, k);
+            grow(t, &r, k);
+            return;
+        }
+    }
+    (void)push(t, (undo_rec){.off = a, .n = k, .cur = t->cur, .kind = U_DEL}, t->text + a);
+}
+
+/* The byte at off about to be overwritten. Kept once: a byte the newest
+   record already restores or removes needs nothing more, and the next one
+   over joins it. */
+static void log_set(tbuf *t, size_t off) {
+    undo_rec r;
+    if (record_at(t, t->undo_len, &r) && r.kind != U_DEL) {
+        if (off >= r.off && off < r.off + r.n) {
+            return;
+        }
+        if (r.kind == U_SET && off == r.off + r.n && t->undo_len < TB_UNDO) {
+            t->undo[t->undo_len - sizeof(r)] = t->text[off];
+            grow(t, &r, 1);
+            return;
+        }
+    }
+    (void)push(t, (undo_rec){.off = off, .n = 1, .cur = t->cur, .kind = U_SET}, t->text + off);
+}
+
+bool tb_undo(tbuf *t) {
+    undo_rec r;
+    if (!record_at(t, t->undo_len, &r)) {
+        return false;
+    }
+    for (;;) {
+        t->undo_len -= sizeof(r) + kept(&r);
+        const uint8_t *bytes = t->undo + t->undo_len;
+        switch (r.kind) {
+        case U_INS:
+            remove_range(t, r.off, r.off + r.n);
+            break;
+        case U_DEL:
+            put(t, r.off, bytes, r.n);
+            break;
+        default:
+            touched(t, r.off);
+            memcpy(t->text + r.off, bytes, r.n);
+            t->dirty = true;
+            reindex(t);
+            break;
+        }
+        if (!r.chain || !record_at(t, t->undo_len, &r)) {
+            break;
+        }
+    }
+    tb_seek(t, r.cur, false);
+    return true;
 }
 
 /* Whether data fits the buffer, its bytes and its lines. */
@@ -176,21 +360,20 @@ bool tb_selection(const tbuf *t, size_t *a, size_t *b) {
     return true;
 }
 
-static void erase(tbuf *t, size_t a, size_t b) {
-    touched(t, a);
-    memmove(t->text + a, t->text + b, t->len - b);
-    t->len -= b - a;
+static void erase(tbuf *t, size_t a, size_t b, bool join) {
+    log_erase(t, a, b, join);
+    remove_range(t, a, b);
     t->cur = a;
     t->anchored = false;
-    t->dirty = true;
-    reindex(t);
 }
 
 bool tb_insert(tbuf *t, const uint8_t *bytes, size_t n) {
     size_t a = 0;
     size_t b = 0;
+    bool chain = false;
     if (tb_selection(t, &a, &b)) {
-        erase(t, a, b);
+        erase(t, a, b, false);
+        chain = true;
     }
     if (n > TB_CAP - t->len) {
         return false;
@@ -206,14 +389,10 @@ bool tb_insert(tbuf *t, const uint8_t *bytes, size_t n) {
     if (t->nlines + nl > TB_LINES_MAX) {
         return false;
     }
-    touched(t, t->cur);
-    memmove(t->text + t->cur + n, t->text + t->cur, t->len - t->cur);
-    memcpy(t->text + t->cur, bytes, n);
-    t->len += n;
+    log_insert(t, t->cur, n, chain);
+    put(t, t->cur, bytes, n);
     t->cur += n;
     t->anchored = false;
-    t->dirty = true;
-    reindex(t);
     t->goal = tb_col_of(t, t->cur);
     return true;
 }
@@ -222,10 +401,10 @@ void tb_backspace(tbuf *t) {
     size_t a = 0;
     size_t b = 0;
     if (tb_selection(t, &a, &b)) {
-        erase(t, a, b);
+        erase(t, a, b, false);
     } else if (t->cur > 0) {
         size_t k = utf8_last_rune_len(t->text, t->cur);
-        erase(t, t->cur - (k > 0 ? k : 1), t->cur);
+        erase(t, t->cur - (k > 0 ? k : 1), t->cur, true);
     }
     t->goal = tb_col_of(t, t->cur);
 }
@@ -234,11 +413,11 @@ void tb_delete(tbuf *t) {
     size_t a = 0;
     size_t b = 0;
     if (tb_selection(t, &a, &b)) {
-        erase(t, a, b);
+        erase(t, a, b, false);
     } else if (t->cur < t->len) {
         uint32_t cp = 0;
         size_t k = rune_at(t, t->cur, &cp);
-        erase(t, t->cur, t->cur + k);
+        erase(t, t->cur, t->cur + k, true);
     }
     t->goal = tb_col_of(t, t->cur);
 }
@@ -250,7 +429,7 @@ void tb_delete_line(tbuf *t) {
     if (b == a && i > 0 && a == t->len) {
         a--; /* the empty last line: take the newline before it */
     }
-    erase(t, a, b);
+    erase(t, a, b, false);
     if (t->cur > t->len) {
         t->cur = t->len;
     }
@@ -332,7 +511,7 @@ void tb_cut(tbuf *t) {
         return;
     }
     tb_copy(t);
-    erase(t, a, b);
+    erase(t, a, b, false);
     t->goal = tb_col_of(t, t->cur);
 }
 
@@ -402,7 +581,10 @@ bool tb_set_byte(tbuf *t, size_t off, uint8_t v) {
         return false;
     }
     if (off == t->len) {
+        log_insert(t, off, 1, false);
         t->len++;
+    } else {
+        log_set(t, off);
     }
     touched(t, off);
     t->text[off] = v;
@@ -418,6 +600,8 @@ bool tb_replace(tbuf *t, const uint8_t *data, size_t n, size_t cur) {
     if (!fits(data, n)) {
         return false;
     }
+    log_erase(t, 0, t->len, false);
+    log_insert(t, 0, n, true);
     touched(t, 0);
     memmove(t->text, data, n);
     t->len = n;

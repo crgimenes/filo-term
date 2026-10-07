@@ -32,11 +32,12 @@ build/%.o: src/%.c $(HDRS)
 	$(CC) -O2 $(FLAGS) -c -o $@ $<
 
 # The runtime driven without any shell: a framed box, a status bar, the
-# text buffer, under the sanitizers.
+# text buffer (its undo log as small as a small device's), under the
+# sanitizers.
 test: test/test_runtime.c test/test_app.c $(SRC) $(HDRS)
 	@mkdir -p build
 	$(CC) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all $(FLAGS) \
-		-o build/test_runtime src/term.c src/canvas.c src/utf8.c src/tbuf.c test/test_runtime.c
+		-DFT_CFG_TB_UNDO=512 -o build/test_runtime src/term.c src/canvas.c src/utf8.c src/tbuf.c test/test_runtime.c
 	./build/test_runtime
 	$(CC) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all $(FLAGS) \
 		-o build/test_app $(APPSRC) $(FILOSRC) test/test_app.c

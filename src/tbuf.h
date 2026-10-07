@@ -10,12 +10,12 @@
 /* The editor's text: one flat byte array, a table of line starts rebuilt
    after every edit (64 KB is nothing to scan), a cursor as a byte offset,
    and an anchor when there is a selection. Columns are display columns:
-   what the terminal shows, tabs to the next stop, wide runes two. No
-   undo: neither had EDIT. */
+   what the terminal shows, tabs to the next stop, wide runes two. */
 enum {
     TB_CAP = FT_CFG_TB_CAP,
     TB_LINES_MAX = FT_CFG_TB_LINES_MAX,
     TB_CLIP = FT_CFG_TB_CLIP,
+    TB_UNDO = FT_CFG_TB_UNDO,
     TB_TAB = 4,
     TB_FIND_MAX = 128,
 };
@@ -37,6 +37,10 @@ typedef struct {
     /* the lowest offset an edit touched since the highlighter last looked
        (SIZE_MAX: none): what it knew of the lines before is still true */
     size_t changed;
+    /* records of the edits, newest last: the bytes a record keeps, then the
+       record (see tbuf.c) */
+    uint8_t undo[TB_UNDO];
+    size_t undo_len;
 } tbuf;
 
 void tb_init(tbuf *t);
@@ -92,5 +96,10 @@ void tb_seek(tbuf *t, size_t off, bool at_rune);
    cursor to cur, backed off to the start of its rune; the clipboard and the
    view stay. False, nothing changed, when it does not fit. */
 bool tb_replace(tbuf *t, const uint8_t *data, size_t n, size_t cur);
+
+/* The last edit taken back, the cursor where it was before it; false when
+   there is none left. Typing undoes a line at a time, a run of deletions
+   at once, and a replaced selection together with what replaced it. */
+bool tb_undo(tbuf *t);
 
 #endif

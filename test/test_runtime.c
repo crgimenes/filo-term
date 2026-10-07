@@ -139,6 +139,74 @@ static void test_tbuf_counts_runes(void) {
     check(tb_col_of(&B, 5) == 3, "column counts runes, not bytes");
 }
 
+static bool text_is(const tbuf *t, const char *want) {
+    return t->len == strlen(want) && memcmp(t->text, want, t->len) == 0;
+}
+
+static void type(tbuf *t, const char *s) {
+    while (*s != '\0') {
+        (void)tb_insert(t, (const uint8_t *)s, 1);
+        s++;
+    }
+}
+
+/* Built with a log of 512 bytes, as a small device would be: the oldest
+   records go, and what is left still undoes to a text that existed. */
+static void test_tbuf_undo(void) {
+    static tbuf B;
+    check(tb_load(&B, (const uint8_t *)"abc", 3), "tbuf loads");
+    check(!tb_undo(&B), "nothing to undo after a load");
+    tb_doc_end(&B, false);
+    type(&B, "de\nfg");
+    check(tb_undo(&B) && text_is(&B, "abcde\n"), "typing undoes a line at a time");
+    check(B.cur == 6, "the cursor goes back to where the typing began");
+    check(tb_undo(&B) && text_is(&B, "abc") && !tb_undo(&B), "then the line before");
+
+    tb_doc_end(&B, false);
+    tb_backspace(&B);
+    tb_backspace(&B);
+    tb_doc_home(&B, false);
+    tb_delete(&B);
+    check(text_is(&B, ""), "all deleted");
+    check(tb_undo(&B) && text_is(&B, "a") && B.cur == 0, "a delete undoes on its own");
+    check(tb_undo(&B) && text_is(&B, "abc") && B.cur == 3, "backspaces undo together");
+
+    tb_doc_home(&B, false);
+    tb_right(&B, true);
+    tb_right(&B, true);
+    type(&B, "X");
+    check(text_is(&B, "Xc"), "the selection replaced");
+    check(tb_undo(&B) && text_is(&B, "abc") && !tb_undo(&B), "and back in one step");
+
+    check(tb_set_byte(&B, 1, 'Y') && tb_set_byte(&B, 1, 'Z') && tb_set_byte(&B, 2, 'W') &&
+              tb_set_byte(&B, 3, 'V'),
+          "bytes overwritten and one added");
+    check(text_is(&B, "aZWV"), "the bytes set");
+    check(tb_undo(&B) && text_is(&B, "aZW"), "the added byte goes");
+    check(tb_undo(&B) && text_is(&B, "abc") && !tb_undo(&B), "the overwrites undo together");
+
+    check(tb_replace(&B, (const uint8_t *)"new text", 8, 0), "replaced whole");
+    check(tb_undo(&B) && text_is(&B, "abc") && !tb_undo(&B), "a replace undoes whole");
+
+    for (int i = 0; i < 200; i++) {
+        tb_doc_home(&B, false);
+        type(&B, i % 2 == 0 ? "x" : "y");
+    }
+    check(B.undo_len <= TB_UNDO, "the log stays in its bytes");
+    int undone = 0;
+    while (tb_undo(&B)) {
+        undone++;
+    }
+    check(undone > 0 && undone < 200, "the oldest records went");
+    check(B.len == 3 + (size_t)(200 - undone), "what is left undoes to a text that was");
+
+    uint8_t big[600];
+    memset(big, 'z', sizeof(big));
+    check(tb_replace(&B, big, sizeof(big), 0), "replaced by more than the log holds");
+    check(tb_replace(&B, (const uint8_t *)"abc", 3, 0), "and that replaced in turn");
+    check(!tb_undo(&B), "empties it rather than undo to a text that never was");
+}
+
 /* A toy app: it only records what it was handed, which is enough to prove
    the stack routes to the top one and hands back the right context. */
 typedef struct {
@@ -267,6 +335,7 @@ int main(void) {
     test_output_and_width();
     test_sink_diverts_output();
     test_tbuf_counts_runes();
+    test_tbuf_undo();
     test_app_stack();
     test_size_has_a_ceiling();
     test_cell_packs_into_one_word();

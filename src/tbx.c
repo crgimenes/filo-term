@@ -516,6 +516,16 @@ static int b_tb_paste(filo_ctx *ctx, const filo_value *a, uint32_t n, filo_value
     return FILO_OK;
 }
 
+/* (tb-undo): the last edit taken back; #f when there is none left. */
+static int b_tb_undo(filo_ctx *ctx, const filo_value *a, uint32_t n, filo_value *out) {
+    (void)a;
+    if (n != 0) {
+        return filo_fail(ctx, "tb-undo takes no argument");
+    }
+    *out = filo_bool(tb_undo(buf_of(ctx)));
+    return FILO_OK;
+}
+
 /* ---- bytes: what a hex view works with ---- */
 
 static int b_tb_size(filo_ctx *ctx, const filo_value *a, uint32_t n, filo_value *out) {
@@ -912,6 +922,7 @@ void tbx_register(filo_ctx *ctx, tbuf *(*buf_fn)(filo_ctx *ctx), bool (*saved_fn
     (void)filo_register_builtin(ctx, "tb-copy", b_tb_copy);
     (void)filo_register_builtin(ctx, "tb-cut", b_tb_cut);
     (void)filo_register_builtin(ctx, "tb-paste", b_tb_paste);
+    (void)filo_register_builtin(ctx, "tb-undo", b_tb_undo);
     (void)filo_register_builtin(ctx, "tb-size", b_tb_size);
     (void)filo_register_builtin(ctx, "tb-offset", b_tb_offset);
     (void)filo_register_builtin(ctx, "tb-seek", b_tb_seek);

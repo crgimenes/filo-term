@@ -48,6 +48,14 @@
 #define FT_CFG_TB_CLIP (16 * 1024)
 #endif
 
+/* The editor's undo: what its edits took away, and where. Typing costs
+   one record a line, a deletion the bytes it deleted; when it fills, the
+   oldest half goes. Reformatting a whole file needs the file's size. A
+   small device sets it small: 4 KB still undoes the last few edits. 64 KB. */
+#ifndef FT_CFG_TB_UNDO
+#define FT_CFG_TB_UNDO (64 * 1024)
+#endif
+
 /* The markdown renderer's line: a longer one is drawn in pieces, and a
    style open across the cut breaks there. 8 KB. */
 #ifndef FT_CFG_MD_LINE
