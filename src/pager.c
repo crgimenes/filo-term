@@ -13,6 +13,7 @@ void pager_reset(pager *p, const char *name) {
     p->nrows = 0;
     p->top = 0;
     p->patlen = 0;
+    p->lastlen = 0;
     p->typing = false;
     p->not_found = false;
     size_t n = strlen(name);
@@ -531,10 +532,15 @@ static void look(pager *p, term *t, size_t r, bool down) {
 /* A key while the pattern is typed after /. */
 static void typing_key(pager *p, term *t, uint32_t cp) {
     if (cp == FT_KEY_ESC || cp == 0x03) {
-        p->typing = false;
-        p->patlen = 0;
+        p->typing = false; /* given up: the pattern before stays, for n */
+        memcpy(p->pat, p->last, p->lastlen);
+        p->patlen = p->lastlen;
     } else if (cp == '\r' || cp == '\n') {
         p->typing = false;
+        if (p->patlen == 0) { /* / and Enter alone: the last pattern again, as in less */
+            memcpy(p->pat, p->last, p->lastlen);
+            p->patlen = p->lastlen;
+        }
         if (p->patlen > 0) {
             look(p, t, p->top + 1 < p->nrows ? p->top + 1 : p->top, true);
             return;
@@ -571,6 +577,8 @@ bool pager_key(pager *p, term *t, uint32_t cp) {
     switch (cp) {
     case '/':
         p->typing = true;
+        memcpy(p->last, p->pat, p->patlen);
+        p->lastlen = p->patlen;
         p->patlen = 0;
         paint(p, t);
         break;

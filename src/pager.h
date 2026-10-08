@@ -47,6 +47,8 @@ typedef struct {
        whether it is being typed, and whether the last look found nothing */
     uint8_t pat[PAGER_PATTERN_MAX];
     size_t patlen;
+    uint8_t last[PAGER_PATTERN_MAX]; /* the pattern before this /: Enter alone looks again */
+    size_t lastlen;
     bool typing;
     bool not_found;
 } pager;
