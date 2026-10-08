@@ -12,7 +12,8 @@ enum { SRC_MAX = 8, UNIT_CAP = 64 * 1024 };
 const app_spec app_program = {"t", "1.0", false, 0, 0, 0, NULL};
 
 static app A;
-static filo_ctx C; /* the compiler's, apart from the app's */
+static const app_spec *spec = &app_program; /* what build and start load */
+static filo_ctx C;                          /* the compiler's, apart from the app's */
 static uint8_t cpersistent[1U << 20U];
 static uint8_t crun[1U << 20U];
 static uint8_t unit[UNIT_CAP];
@@ -58,7 +59,7 @@ static bool build(const entry_src *e, size_t n) {
     static filo_prog progs[SRC_MAX];
     static filo_bc_entry entries[SRC_MAX];
     char why[128];
-    if (!app_context(&A, &app_program, why, sizeof(why))) {
+    if (!app_context(&A, spec, why, sizeof(why))) {
         printf("context: %s\n", why);
         return false;
     }
@@ -84,7 +85,7 @@ static bool start(void) {
     char why[256];
     A.seed = 42;
     A.arg = "hello";
-    if (!app_start(&A, &app_program, fbb, fbb_len, 40, 10, why, sizeof(why))) {
+    if (!app_start(&A, spec, fbb, fbb_len, 40, 10, why, sizeof(why))) {
         printf("start: %s\n", why);
         return false;
     }
@@ -162,6 +163,43 @@ static void test_field(void) {
     check(strstr(drain(), "<hi>") != NULL, "Enter hands the line to input");
 }
 
+/* (lend): a builtin that lends the terminal out, as one running $EDITOR
+   does, and takes it back: the size comes in again while key is still
+   on the VM. */
+static int b_lend(filo_ctx *ctx, const filo_value *a, uint32_t n, filo_value *res) {
+    (void)ctx;
+    (void)a;
+    (void)n;
+    app_resize(&A, 40, 10);
+    *res = filo_cstring("");
+    return FILO_OK;
+}
+
+static bool lend_extend(app *a, filo_ctx *ctx) {
+    (void)a;
+    return filo_register_builtin(ctx, "lend", b_lend) == FILO_OK;
+}
+
+static const app_spec lending = {"t", "1.0", false, 0, 0, 0, lend_extend};
+
+/* Painting there would run draw inside key, on one VM; the paint after key
+   is the one that answers the resize. */
+static void test_resize_inside_an_entry(void) {
+    static const entry_src p[] = {
+        {"init", "(def n 0)"},
+        {"draw", "(print-at 0 0 (str-fmt \"n=%d\" n))"},
+        {"key", "(let ((r (lend))) (set n (+ n 1)) r)"},
+    };
+    spec = &lending;
+    check(build(p, 3), "builds the lending one");
+    check(start(), "starts the lending one");
+    (void)drain();
+    key('x');
+    check(A.error[0] == '\0', "no failure after the terminal comes back");
+    check(strstr(row(0), "n=1") != NULL, "key finished, then one paint");
+    spec = &app_program;
+}
+
 static void test_refuses_missing(void) {
     static const entry_src p[] = {
         {"init", "(def x 0)"},
@@ -190,6 +228,7 @@ int main(void) {
     test_keep_canvas_and_tick();
     test_error_line();
     test_field();
+    test_resize_inside_an_entry();
     test_refuses_missing();
     test_profile();
     if (nfail > 0) {

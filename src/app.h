@@ -85,6 +85,7 @@ struct app {
 
     bool keep_canvas; /* the cells stay from one paint to the next */
     bool fresh;       /* the next paint starts from blank cells anyway */
+    bool running;     /* an entry is on the VM: a paint now would re-enter it */
     bool done;
     char error[APP_ERROR_MAX]; /* the last failure, on the bottom row */
 };

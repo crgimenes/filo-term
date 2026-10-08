@@ -174,7 +174,10 @@ static uint32_t steps(uint32_t chosen, uint32_t fallback) {
 static bool run(app *a, const char *entry, uint32_t budget) {
     filo_limits limits = {budget, 0};
     filo_value v;
-    if (filo_bc_run(&a->ctx, a->unit, entry, &limits, &v) == FILO_OK) {
+    a->running = true;
+    int rc = filo_bc_run(&a->ctx, a->unit, entry, &limits, &v);
+    a->running = false;
+    if (rc == FILO_OK) {
         return true;
     }
     uint32_t line = 0;
@@ -212,8 +215,11 @@ static bool on_top(const app *a) {
 }
 
 static void paint(app *a) {
-    if (!on_top(a) || a->t.pasting) {
-        return; /* a view over it has the screen; a paste ends with one paint */
+    if (!on_top(a) || a->t.pasting || a->running) {
+        /* a view over it has the screen; a paste ends with one paint; a
+           builtin that lent the terminal out (an editor) is answered by the
+           paint that follows its entry */
+        return;
     }
     bool fresh = a->fresh;
     if (!a->keep_canvas) {
@@ -423,6 +429,7 @@ static bool fail(char *why, size_t cap, const char *a, const char *b, const char
 
 bool app_context(app *a, const app_spec *spec, char *why, size_t cap) {
     a->spec = spec;
+    a->running = false;
     filo_host host = filo_nolibc_host;
     const filo_strings_fns *strings = &filo_nolibc_strings;
     const filo_math_fns *math = NULL; /* floor and its neighbours, computed without libm */
