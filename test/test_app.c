@@ -199,6 +199,29 @@ static void test_area(void) {
     check(strstr(drain(), "Yhello wide woXrld") != NULL, "Enter hands the whole text over");
 }
 
+/* In an area a line break is text when it is Ctrl-J or comes in a paste
+   (a CRLF counts once); Enter typed is CR and sends. */
+static void test_area_line_breaks(void) {
+    static const entry_src p[] = {
+        {"init", "(def got \"\")"},
+        {"draw", "(input-at 0 0 10 0 #f 4) (print-at 5 0 (str-replace \"\\n\" \"/\" got))"},
+        {"input", "(set got (input-text))"},
+    };
+    check(build(p, 3), "builds the area");
+    check(start(), "starts the area");
+    keys("ab\ncd");
+    (void)drain();
+    check(strncmp(row(0), "ab        ", 10) == 0 && strncmp(row(1), "cd        ", 10) == 0,
+          "Ctrl-J breaks the line");
+    keys("\x1b[200~ /\\\r\n( o\r\x1b[201~");
+    (void)drain();
+    check(strncmp(row(1), "cd /\\     ", 10) == 0, "a pasted line stays on its line");
+    check(strncmp(row(2), "( o       ", 10) == 0, "a pasted CRLF breaks once");
+    check(A.caret_row == 3 && A.caret_col == 0, "a pasted CR at the end opens a line");
+    key('\r');
+    check(strstr(drain(), "ab/cd /\\/( o/") != NULL, "Enter typed sends it all");
+}
+
 /* (wrap): the lines a field would break the text into — at spaces, the
    other spaces kept, a lone long word cut. */
 static void test_wrap(void) {
@@ -216,6 +239,19 @@ static void test_wrap(void) {
     check(strncmp(row(1), "  a  b ", 7) == 0, "keeps the spaces that are not breaks");
     check(strncmp(row(2), "abcde|fghij|kl ", 15) == 0, "cuts a word wider than the line");
     check(strncmp(row(3), "1 ", 2) == 0, "an empty text is one empty line");
+}
+
+/* A line break ends a line wherever it is, and a text ending in one ends
+   on an empty line. */
+static void test_wrap_line_breaks(void) {
+    static const entry_src p[] = {
+        {"init", "(def z 0)"},
+        {"draw", "(print-at 0 0 (str-join \"|\" (wrap \" /\\\\_/\\\\\\n( o.o )\\n\" 20)))"},
+    };
+    check(build(p, 2), "builds the art wrapper");
+    check(start(), "starts the art wrapper");
+    (void)drain();
+    check(strncmp(row(0), " /\\_/\\|( o.o )| ", 16) == 0, "breaks at line breaks, spaces kept");
 }
 
 /* (lend): a builtin that lends the terminal out, as one running $EDITOR
@@ -284,7 +320,9 @@ int main(void) {
     test_error_line();
     test_field();
     test_area();
+    test_area_line_breaks();
     test_wrap();
+    test_wrap_line_breaks();
     test_resize_inside_an_entry();
     test_refuses_missing();
     test_profile();

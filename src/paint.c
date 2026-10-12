@@ -234,12 +234,19 @@ static int b_wrap(filo_ctx *ctx, const filo_value *a, uint32_t n, filo_value *ou
     if (width < 1) {
         return filo_fail(ctx, "wrap needs at least one column");
     }
-    enum { WRAP_LINES_MAX = 512 };
-    static field_line lines[WRAP_LINES_MAX];
-    static filo_value items[WRAP_LINES_MAX];
-    size_t count = field_wrap(t.ptr, t.len, (size_t)width, lines, WRAP_LINES_MAX);
-    for (size_t i = 0; i < count; i++) {
-        items[i] = filo_string(t.ptr + lines[i].start, (uint32_t)(lines[i].end - lines[i].start));
+    size_t count = 0;
+    for (size_t at = 0; at <= t.len; count++) {
+        at = field_wrap_line(t.ptr, t.len, (size_t)width, at).next;
+    }
+    filo_value *items = filo_alloc(ctx, count * sizeof(filo_value));
+    if (items == NULL) {
+        return filo_fail(ctx, "wrap: out of memory");
+    }
+    size_t i = 0;
+    for (size_t at = 0; at <= t.len; i++) {
+        field_line l = field_wrap_line(t.ptr, t.len, (size_t)width, at);
+        items[i] = filo_string(t.ptr + l.start, (uint32_t)(l.end - l.start));
+        at = l.next;
     }
     return filo_list(ctx, items, (uint32_t)count, out);
 }

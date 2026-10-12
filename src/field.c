@@ -50,6 +50,7 @@ void field_draw(field *f, canvas *c, int32_t row, int32_t col, int32_t width, ui
                 bool secret, int32_t *caret_row, int32_t *caret_col) {
     f->on = true;
     f->max = most;
+    f->rows = 1;
 
     cv_text typed = {f->buf, f->len};
     size_t shown_w = 0;
@@ -85,39 +86,27 @@ void field_draw(field *f, canvas *c, int32_t row, int32_t col, int32_t width, ui
     *caret_col = col + (int32_t)caret_w;
 }
 
-size_t field_wrap(const uint8_t *buf, size_t len, size_t maxw, field_line *out, size_t cap) {
-    size_t n = 0;
-    size_t start = 0;
-    size_t at = 0;
+field_line field_wrap_line(const uint8_t *buf, size_t len, size_t maxw, size_t from) {
+    size_t at = from;
     size_t w = 0;
     size_t space = SIZE_MAX; /* the last space of this line, if any */
-    while (at < len && n + 1 < cap) {
+    while (at < len) {
+        if (buf[at] == '\n') {
+            return (field_line){from, at, at + 1};
+        }
         size_t k = rune_len_at(buf, at);
         if (at + k > len) {
             k = len - at;
         }
         size_t rw = cv_text_width((cv_text){buf + at, k});
-        if (buf[at] == ' ' && w + rw > maxw) {
-            /* the space itself is the break */
-            out[n++] = (field_line){start, at};
-            start = at + k;
-            at = start;
-            w = 0;
-            space = SIZE_MAX;
-            continue;
-        }
-        if (buf[at] != ' ' && w + rw > maxw && at > start) {
-            if (space != SIZE_MAX) {
-                out[n++] = (field_line){start, space};
-                start = space + 1;
-            } else {
-                out[n++] = (field_line){start, at};
-                start = at;
+        if (w + rw > maxw && at > from) {
+            if (buf[at] == ' ') {
+                return (field_line){from, at, at + 1}; /* the space itself is the break */
             }
-            at = start;
-            w = 0;
-            space = SIZE_MAX;
-            continue;
+            if (space != SIZE_MAX) {
+                return (field_line){from, space, space + 1};
+            }
+            return (field_line){from, at, at};
         }
         if (buf[at] == ' ') {
             space = at;
@@ -125,8 +114,7 @@ size_t field_wrap(const uint8_t *buf, size_t len, size_t maxw, field_line *out, 
         w += rw;
         at += k;
     }
-    out[n++] = (field_line){start, len};
-    return n;
+    return (field_line){from, len, len + 1};
 }
 
 void field_draw_area(field *f, canvas *c, int32_t row, int32_t col, int32_t width, int32_t rows,
@@ -137,27 +125,34 @@ void field_draw_area(field *f, canvas *c, int32_t row, int32_t col, int32_t widt
     }
     f->on = true;
     f->max = most;
+    f->rows = rows;
 
-    static field_line lines[FIELD_CAP + 1];
+    /* two walks over the text instead of a table of its lines: the first
+       finds the caret's line, the second draws the window around it */
     size_t maxw = (size_t)width - 1; /* the caret needs a cell after a full line */
-    size_t n = field_wrap(f->buf, f->len, maxw, lines, sizeof(lines) / sizeof(lines[0]));
-    size_t on = n - 1;
-    for (size_t i = 0; i + 1 < n; i++) {
-        if (f->cur < lines[i + 1].start) {
+    size_t on = 0;
+    field_line caret = {0, 0, 1};
+    size_t i = 0;
+    for (size_t at = 0; at <= f->len; i++) {
+        field_line l = field_wrap_line(f->buf, f->len, maxw, at);
+        if (f->cur >= l.start) { /* the last line starting at or before the caret */
             on = i;
-            break;
+            caret = l;
         }
+        at = l.next;
     }
     size_t top = on >= (size_t)rows ? on - (size_t)rows + 1 : 0;
-    for (int32_t r = 0; r < rows; r++) {
-        cv_fill(c, row + r, col, 1, width, cv_cstr(" "));
-        size_t i = top + (size_t)r;
-        if (i < n) {
-            (void)cv_put(c, row + r, col,
-                         (cv_text){f->buf + lines[i].start, lines[i].end - lines[i].start});
+    cv_fill(c, row, col, rows, width, cv_cstr(" "));
+    i = 0;
+    for (size_t at = 0; at <= f->len && i < top + (size_t)rows; i++) {
+        field_line l = field_wrap_line(f->buf, f->len, maxw, at);
+        if (i >= top) {
+            (void)cv_put(c, row + (int32_t)(i - top), col,
+                         (cv_text){f->buf + l.start, l.end - l.start});
         }
+        at = l.next;
     }
-    size_t caret_w = cv_text_width((cv_text){f->buf + lines[on].start, f->cur - lines[on].start});
+    size_t caret_w = cv_text_width((cv_text){f->buf + caret.start, f->cur - caret.start});
     if (caret_w > maxw) {
         caret_w = maxw;
     }
@@ -194,11 +189,22 @@ void field_clear(field *f) {
     f->len = 0;
     f->cur = 0;
     f->runes = 0;
+    f->after_cr = false;
 }
 
 /* The field's own keys, besides the runes: the caret moves and erases
    where it is, the way a line is edited anywhere. */
 void field_key(field *f, uint32_t cp) {
+    bool cr = f->after_cr;
+    f->after_cr = false;
+    if (cp == '\r' || cp == '\n') {
+        if (cp == '\n' && cr) {
+            return; /* the LF of a CRLF: the CR already broke the line */
+        }
+        f->after_cr = cp == '\r';
+        field_insert(f, '\n');
+        return;
+    }
     if (cp == 0x08 || cp == 0x7F) {
         if (f->cur > 0) {
             size_t k = utf8_last_rune_len(f->buf, f->cur);
@@ -246,6 +252,19 @@ bool field_takes(const field *f, uint32_t cp) {
         return true;
     }
     if (cp < 0x20 || ft_key_is_code(cp)) {
+        return false;
+    }
+    return true;
+}
+
+bool field_submits(const field *f, uint32_t cp, bool pasting) {
+    if (cp != '\r' && cp != '\n') {
+        return false;
+    }
+    if (f->rows <= 1) {
+        return true;
+    }
+    if (cp == '\n' || pasting) {
         return false;
     }
     return true;

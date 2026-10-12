@@ -57,9 +57,10 @@
 #endif
 
 /* What a program's input field holds: a line, or the lines of an area a
-   chat or a note is typed into. 512 bytes. */
+   chat or a note is typed or pasted into — a drawing in box characters
+   takes three bytes a cell. 4 KB. */
 #ifndef FT_CFG_FIELD_CAP
-#define FT_CFG_FIELD_CAP 512
+#define FT_CFG_FIELD_CAP (4 * 1024)
 #endif
 
 /* The markdown renderer's line: a longer one is drawn in pieces, and a

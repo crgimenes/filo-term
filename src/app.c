@@ -277,7 +277,7 @@ static void core_key(void *ctx, uint32_t cp) {
     a->error[0] = '\0';
     uint32_t budget = steps(a->spec->steps_event, APP_STEPS_EVENT);
     if (field_takes(&a->in, cp)) {
-        if (cp == '\r' || cp == '\n') {
+        if (field_submits(&a->in, cp, a->t.pasting)) {
             if (has(a, "input")) {
                 (void)run(a, "input", budget);
             }
