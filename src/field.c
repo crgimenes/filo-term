@@ -1,5 +1,6 @@
 #include "field.h"
 
+#include <stdint.h>
 #include <string.h>
 
 #include "keys.h"
@@ -81,6 +82,86 @@ void field_draw(field *f, canvas *c, int32_t row, int32_t col, int32_t width, ui
     }
     cv_fill(c, row, col + (int32_t)shown_w, 1, width - (int32_t)shown_w, cv_cstr(" "));
     *caret_row = row;
+    *caret_col = col + (int32_t)caret_w;
+}
+
+size_t field_wrap(const uint8_t *buf, size_t len, size_t maxw, field_line *out, size_t cap) {
+    size_t n = 0;
+    size_t start = 0;
+    size_t at = 0;
+    size_t w = 0;
+    size_t space = SIZE_MAX; /* the last space of this line, if any */
+    while (at < len && n + 1 < cap) {
+        size_t k = rune_len_at(buf, at);
+        if (at + k > len) {
+            k = len - at;
+        }
+        size_t rw = cv_text_width((cv_text){buf + at, k});
+        if (buf[at] == ' ' && w + rw > maxw) {
+            /* the space itself is the break */
+            out[n++] = (field_line){start, at};
+            start = at + k;
+            at = start;
+            w = 0;
+            space = SIZE_MAX;
+            continue;
+        }
+        if (buf[at] != ' ' && w + rw > maxw && at > start) {
+            if (space != SIZE_MAX) {
+                out[n++] = (field_line){start, space};
+                start = space + 1;
+            } else {
+                out[n++] = (field_line){start, at};
+                start = at;
+            }
+            at = start;
+            w = 0;
+            space = SIZE_MAX;
+            continue;
+        }
+        if (buf[at] == ' ') {
+            space = at;
+        }
+        w += rw;
+        at += k;
+    }
+    out[n++] = (field_line){start, len};
+    return n;
+}
+
+void field_draw_area(field *f, canvas *c, int32_t row, int32_t col, int32_t width, int32_t rows,
+                     uint32_t most, bool secret, int32_t *caret_row, int32_t *caret_col) {
+    if (rows <= 1 || secret) {
+        field_draw(f, c, row, col, width, most, secret, caret_row, caret_col);
+        return;
+    }
+    f->on = true;
+    f->max = most;
+
+    static field_line lines[FIELD_CAP + 1];
+    size_t maxw = (size_t)width - 1; /* the caret needs a cell after a full line */
+    size_t n = field_wrap(f->buf, f->len, maxw, lines, sizeof(lines) / sizeof(lines[0]));
+    size_t on = n - 1;
+    for (size_t i = 0; i + 1 < n; i++) {
+        if (f->cur < lines[i + 1].start) {
+            on = i;
+            break;
+        }
+    }
+    size_t top = on >= (size_t)rows ? on - (size_t)rows + 1 : 0;
+    for (int32_t r = 0; r < rows; r++) {
+        cv_fill(c, row + r, col, 1, width, cv_cstr(" "));
+        size_t i = top + (size_t)r;
+        if (i < n) {
+            (void)cv_put(c, row + r, col,
+                         (cv_text){f->buf + lines[i].start, lines[i].end - lines[i].start});
+        }
+    }
+    size_t caret_w = cv_text_width((cv_text){f->buf + lines[on].start, f->cur - lines[on].start});
+    if (caret_w > maxw) {
+        caret_w = maxw;
+    }
+    *caret_row = row + (int32_t)(on - top);
     *caret_col = col + (int32_t)caret_w;
 }
 

@@ -1,5 +1,7 @@
 #include "paint.h"
 
+#include "field.h"
+
 #include <string.h>
 
 /* The canvas the builtins draw on; the host says which when it registers
@@ -217,6 +219,31 @@ static int b_attr(filo_ctx *ctx, const filo_value *a, uint32_t n, filo_value *ou
     return FILO_OK;
 }
 
+/* (wrap text width): the text as the lines a field of that width would
+   show it in, so what is read breaks where what is typed breaks. */
+static int b_wrap(filo_ctx *ctx, const filo_value *a, uint32_t n, filo_value *out) {
+    if (n != 2) {
+        return filo_fail(ctx, "wrap expects a string and a width");
+    }
+    cv_text t = {NULL, 0};
+    int32_t width = 0;
+    if (paint_arg_text(ctx, &a[0], &t) != FILO_OK ||
+        paint_arg_cell(ctx, &a[1], "width", &width) != FILO_OK) {
+        return FILO_ERR;
+    }
+    if (width < 1) {
+        return filo_fail(ctx, "wrap needs at least one column");
+    }
+    enum { WRAP_LINES_MAX = 512 };
+    static field_line lines[WRAP_LINES_MAX];
+    static filo_value items[WRAP_LINES_MAX];
+    size_t count = field_wrap(t.ptr, t.len, (size_t)width, lines, WRAP_LINES_MAX);
+    for (size_t i = 0; i < count; i++) {
+        items[i] = filo_string(t.ptr + lines[i].start, (uint32_t)(lines[i].end - lines[i].start));
+    }
+    return filo_list(ctx, items, (uint32_t)count, out);
+}
+
 static int b_text_width(filo_ctx *ctx, const filo_value *a, uint32_t n, filo_value *out) {
     if (n != 1) {
         return filo_fail(ctx, "text-width expects one string");
@@ -301,6 +328,7 @@ void paint_register(filo_ctx *ctx, canvas *(*canvas_fn)(filo_ctx *ctx)) {
     (void)filo_register_builtin(ctx, "bg", b_bg);
     (void)filo_register_builtin(ctx, "attr", b_attr);
     (void)filo_register_builtin(ctx, "text-width", b_text_width);
+    (void)filo_register_builtin(ctx, "wrap", b_wrap);
     (void)filo_register_builtin(ctx, "tag", b_tag);
     (void)filo_register_builtin(ctx, "cell-at", b_cell_at);
     (void)filo_register_builtin(ctx, "tag-at", b_tag_at);

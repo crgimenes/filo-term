@@ -163,6 +163,61 @@ static void test_field(void) {
     check(strstr(drain(), "<hi>") != NULL, "Enter hands the line to input");
 }
 
+static void keys(const char *s) {
+    for (; *s != '\0'; s++) {
+        key((uint8_t)*s);
+    }
+}
+
+/* An area: the text breaks at spaces over the rows, and the caret, moved
+   into the middle of it, lands on the right line and column. */
+static void test_area(void) {
+    static const entry_src p[] = {
+        {"init", "(def got \"\")"},
+        {"draw", "(input-at 0 0 10 0 #f 3) (print-at 4 0 got)"},
+        {"input", "(set got (input-text))"},
+    };
+    check(build(p, 3), "builds the area");
+    check(start(), "starts the area");
+    keys("hello wide world");
+    (void)drain();
+    check(strncmp(row(0), "hello     ", 10) == 0, "the first line ends at the space");
+    check(strncmp(row(1), "wide      ", 10) == 0, "the second too");
+    check(strncmp(row(2), "world     ", 10) == 0, "the last word is the last line");
+    check(A.caret_row == 2 && A.caret_col == 5, "the caret is after the last word");
+    keys("\x1b[D\x1b[D\x1b[D");
+    key('X');
+    (void)drain();
+    check(strncmp(row(2), "woXrld    ", 10) == 0, "a rune lands where the caret is");
+    check(A.caret_row == 2 && A.caret_col == 3, "and the caret follows it there");
+    keys("\x1b[H");
+    key('Y');
+    (void)drain();
+    check(strncmp(row(0), "Yhello    ", 10) == 0 && A.caret_row == 0 && A.caret_col == 1,
+          "Home goes to the first line");
+    key('\r');
+    check(strstr(drain(), "Yhello wide woXrld") != NULL, "Enter hands the whole text over");
+}
+
+/* (wrap): the lines a field would break the text into — at spaces, the
+   other spaces kept, a lone long word cut. */
+static void test_wrap(void) {
+    static const entry_src p[] = {
+        {"init", "(def z 0)"},
+        {"draw", "(print-at 0 0 (str-join \"|\" (wrap \"hello wide world\" 9)))"
+                 "(print-at 1 0 (str-join \"|\" (wrap \"  a  b\" 9)))"
+                 "(print-at 2 0 (str-join \"|\" (wrap \"abcdefghijkl\" 5)))"
+                 "(print-at 3 0 (str-fmt \"%d\" (length (wrap \"\" 5))))"},
+    };
+    check(build(p, 2), "builds the wrapper");
+    check(start(), "starts the wrapper");
+    (void)drain();
+    check(strncmp(row(0), "hello|wide|world ", 17) == 0, "breaks at the spaces");
+    check(strncmp(row(1), "  a  b ", 7) == 0, "keeps the spaces that are not breaks");
+    check(strncmp(row(2), "abcde|fghij|kl ", 15) == 0, "cuts a word wider than the line");
+    check(strncmp(row(3), "1 ", 2) == 0, "an empty text is one empty line");
+}
+
 /* (lend): a builtin that lends the terminal out, as one running $EDITOR
    does, and takes it back: the size comes in again while key is still
    on the VM. */
@@ -228,6 +283,8 @@ int main(void) {
     test_keep_canvas_and_tick();
     test_error_line();
     test_field();
+    test_area();
+    test_wrap();
     test_resize_inside_an_entry();
     test_refuses_missing();
     test_profile();

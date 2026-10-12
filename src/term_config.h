@@ -56,6 +56,12 @@
 #define FT_CFG_TB_UNDO (64 * 1024)
 #endif
 
+/* What a program's input field holds: a line, or the lines of an area a
+   chat or a note is typed into. 512 bytes. */
+#ifndef FT_CFG_FIELD_CAP
+#define FT_CFG_FIELD_CAP 512
+#endif
+
 /* The markdown renderer's line: a longer one is drawn in pieces, and a
    style open across the cut breaks there. 8 KB. */
 #ifndef FT_CFG_MD_LINE
