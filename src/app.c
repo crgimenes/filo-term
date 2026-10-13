@@ -7,6 +7,7 @@
 #include "filo_strings.h"
 #include "keys.h"
 #include "paint.h"
+#include "utf8.h"
 
 #ifdef APP_LIBM
 #include "filo_libc.h"
@@ -87,13 +88,56 @@ static int b_input_at(filo_ctx *ctx, const filo_value *a, uint32_t n, filo_value
     return FILO_OK;
 }
 
+/* (input-set TEXT): the field's text becomes TEXT, caret at the end, as
+   rocchetto's screens have it: a form moving its one field to the next
+   value. Inside the input entry it also keeps the field from being
+   cleared when the entry returns. */
+static int b_input_set(filo_ctx *ctx, const filo_value *a, uint32_t n, filo_value *out) {
+    cv_text text = {NULL, 0};
+    if (n != 1) {
+        return filo_fail(ctx, "input-set expects the text");
+    }
+    if (paint_arg_text(ctx, &a[0], &text) != FILO_OK) {
+        return FILO_ERR;
+    }
+    app *p = app_of(ctx);
+    field_clear(&p->in);
+    p->in.max = 0; /* the last paint's limit was another field's */
+    utf8_dec d;
+    utf8_dec_init(&d);
+    size_t i = 0;
+    while (i < text.len) {
+        uint32_t cp = 0;
+        int resync = 0;
+        utf8_result r = utf8_dec_feed(&d, (uint8_t)text.ptr[i], &cp, &resync);
+        if (r == UTF8_RUNE) {
+            field_key(&p->in, cp);
+        } else if (r == UTF8_ERROR) {
+            field_key(&p->in, UTF8_REPLACEMENT);
+        }
+        if (r != UTF8_ERROR || resync == 0) {
+            i++;
+        }
+    }
+    p->in_seeded = true;
+    *out = filo_bool(true);
+    return FILO_OK;
+}
+
 static int b_input_text(filo_ctx *ctx, const filo_value *a, uint32_t n, filo_value *out) {
     (void)a;
     if (n != 0) {
         return filo_fail(ctx, "input-text takes no arguments");
     }
     const app *p = app_of(ctx);
-    *out = filo_string(p->in.buf, (uint32_t)p->in.len);
+    /* a copy: the field goes on changing under a value that pointed into it
+       (a form keeping the text of one field while the next is typed) */
+    uint8_t *copy = filo_alloc(ctx, p->in.len > 0 ? p->in.len : 1);
+    if (copy == NULL) {
+        return filo_fail(ctx, "input-text: out of memory");
+    }
+    memcpy(copy, p->in.buf, p->in.len);
+    *out = filo_string(copy, (uint32_t)p->in.len);
     return FILO_OK;
 }
 
@@ -278,10 +322,13 @@ static void core_key(void *ctx, uint32_t cp) {
     uint32_t budget = steps(a->spec->steps_event, APP_STEPS_EVENT);
     if (field_takes(&a->in, cp)) {
         if (field_submits(&a->in, cp, a->t.pasting)) {
+            a->in_seeded = false;
             if (has(a, "input")) {
                 (void)run(a, "input", budget);
             }
-            field_clear(&a->in);
+            if (!a->in_seeded) {
+                field_clear(&a->in);
+            }
         } else {
             field_key(&a->in, cp);
         }
@@ -456,6 +503,7 @@ bool app_context(app *a, const app_spec *spec, char *why, size_t cap) {
     paint_register(&a->ctx, canvas_of);
     (void)filo_register_builtin(&a->ctx, "input-at", b_input_at);
     (void)filo_register_builtin(&a->ctx, "input-text", b_input_text);
+    (void)filo_register_builtin(&a->ctx, "input-set", b_input_set);
     (void)filo_register_builtin(&a->ctx, "cursor-at", b_cursor_at);
     (void)filo_register_builtin(&a->ctx, "clipboard", b_clipboard);
     (void)filo_register_builtin(&a->ctx, "random", b_random);
@@ -496,6 +544,14 @@ bool app_start(app *a, const app_spec *spec, const uint8_t *fbb, size_t fbb_len,
     }
     if (!has(a, "init") || !has(a, "draw")) {
         return fail(why, cap, spec->name, ": ", "the program needs an init and a draw");
+    }
+    /* the kit and the program's common file first, when it carries them,
+       as rocchetto runs a screen's: the same bundle draws the same there */
+    static const char *const before[] = {"kit", "common"};
+    for (size_t i = 0; i < sizeof(before) / sizeof(before[0]); i++) {
+        if (has(a, before[i]) && !run(a, before[i], steps(spec->steps_init, APP_STEPS_INIT))) {
+            return fail(why, cap, a->error, "", "");
+        }
     }
     if (!run(a, "init", steps(spec->steps_init, APP_STEPS_INIT))) {
         return fail(why, cap, a->error, "", "");

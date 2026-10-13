@@ -13,14 +13,17 @@
 
 /* A Filo program that owns a terminal: a bundle member with the entries
    init (required: it declares the program's globals, which are sealed when
-   it returns), draw (required), and key, input and tick when it has them.
+   it returns), draw (required), and key, input and tick when it has them;
+   kit and common, when it carries them, run before init, as rocchetto runs
+   a screen's.
    This is the core, with no terminal of its own: bytes come in (app_input),
    bytes for the terminal go out through the term, and a test drives it the
    same way a tty does (tty.h is the POSIX one).
 
    Every program gets the same base, on every host that runs one: the core,
    strings and the math computed without libm; paint; input-at,
-   input-text, cursor-at, clipboard, random, keep-canvas, done; and the
+   input-text, input-set, cursor-at, clipboard, random, keep-canvas, done;
+   and the
    globals W, H, KEY, MS, FRESH, ARG, VERSION, A_BOLD, A_DIM, A_REV,
    C_DEFAULT and KEY_*. What a program needs past that it registers itself
    (app_spec.extend), and a host that lacks a name refuses the bundle when
@@ -79,6 +82,7 @@ struct app {
     keyin kin;
 
     field in;
+    bool in_seeded;  /* input-set ran in the input entry: keep what it put */
     bool has_cursor; /* cursor-at: the caret without a field */
     int32_t caret_row;
     int32_t caret_col;

@@ -114,6 +114,41 @@ static void test_paint_and_done(void) {
     check(strstr(drain(), "\x1b[?1049l") != NULL, "gives the terminal back");
 }
 
+/* The kit and a common file, when the bundle carries them, run before
+   init: a program built on the kit draws the same here as in rocchetto. */
+static void test_kit_and_common(void) {
+    static const entry_src p[] = {
+        {"kit", "(def kit-word (fn () \"from the kit\"))"},
+        {"common", "(def layer-word (str-concat (kit-word) \", then common\"))"},
+        {"init", "(def title layer-word)"},
+        {"draw", "(print-at 0 0 title)"},
+    };
+    check(build(p, 4), "builds with a kit");
+    check(start(), "starts with a kit");
+    check(strstr(row(0), "from the kit, then common") != NULL, "kit, common, then init");
+}
+
+/* input-set seeds the field, and inside the input entry what it put
+   stays: a form moves its one field to the next value, keeping the text of
+   the one it leaves. */
+static void test_input_set(void) {
+    static const entry_src p[] = {
+        {"init", "(def got \"\") (input-set \"ação\")"},
+        {"draw", "(print-at 0 0 (str-concat \"got:\" got)) (input-at 2 0 20 40 #f)"},
+        {"input", "(set got (input-text)) (input-set \"next\")"},
+    };
+    check(build(p, 3), "builds the form");
+    check(start(), "starts the form");
+    check(A.in.len == strlen("ação") && memcmp(A.in.buf, "ação", A.in.len) == 0,
+          "input-set seeds the field, runes whole");
+    key('!');
+    key('\r');
+    check(strstr(row(0), "got:a  o!") != NULL, "Enter hands the text to input");
+    check(A.in.len == 4 && memcmp(A.in.buf, "next", 4) == 0, "what input set stays");
+    key('\r');
+    check(strstr(row(0), "got:next") != NULL, "and is the next value");
+}
+
 static void test_keep_canvas_and_tick(void) {
     static const entry_src p[] = {
         {"init", "(keep-canvas) (def t 0) (def r (random 1000))"},
@@ -316,6 +351,8 @@ static void test_profile(void) {
 
 int main(void) {
     test_paint_and_done();
+    test_kit_and_common();
+    test_input_set();
     test_keep_canvas_and_tick();
     test_error_line();
     test_field();
