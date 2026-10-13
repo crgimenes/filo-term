@@ -1,0 +1,453 @@
+; The kit: what a screen over rocchetto draws with. The palette, the frame,
+; the menu, the form, the table, the legend, the note and the prompt; a
+; screen draws with these and nothing else decides a colour. It runs before
+; the layer's own common.filo (the board's, an app's), so both build on it.
+; The pieces were worked out in bbs/tui, the gallery, where they run with no
+; board.
+
+; ---- the palette: the editor's, so edt and the board are one thing ----
+; The ground is the terminal's own (black); colour is spent on what is
+; read, and one colour, orange, on what acts.
+(def C_TEXT 252)   ; what is read
+(def C_SOFT 250)   ; labels, headers: read second
+(def C_DIM 244)    ; frames, legends: there, not asked for
+(def C_PANEL 236)  ; the ground of a field or a button at rest
+(def C_HOT 214)    ; the one colour that acts: a hot letter, the focus
+(def C_OK 2)
+(def C_WARN 214)
+(def C_ERR 203)
+
+(def pen (fn (f b) (fg f) (bg b)))
+(def pen-off (fn () (fg C_DEFAULT) (bg C_DEFAULT) (attr 0)))
+
+; ---- small helpers ----
+; Modulo that takes the divisor's sign; over nothing (a form with no
+; fields and no buttons) it is 0, not a division by zero.
+(def mod (fn (a n) (if (= n 0) 0 (- a (* n (floor (/ a n)))))))
+(def slice (fn (l from to) (map (fn (i) (nth l (+ from i))) (range (- to from)))))
+(def list-set (fn (l i v) (map (fn (j) (if (= j i) v (nth l j))) (range (length l)))))
+(def index-of
+  (fn (l v)
+    (fold (fn (found i) (if (>= found 0) found (if (= (nth l i) v) i -1))) -1 (range (length l)))))
+(def centred-left (fn (width) (floor (/ (- W width) 2))))
+
+; How wide a framed box is on this terminal: what the screen wants, less
+; when the window is narrower, never under 30 columns.
+(def box-width (fn (want) (math-max 30 (math-min want (- W 4)))))
+
+; Centring lands on half a column whenever the widths differ by an odd
+; number, and a cell is a cell: floor picks the left one.
+(def centred
+  (fn (row text) (print-at row (floor (/ (- W (text-width text)) 2)) text)))
+
+(def single (list "┌" "─" "┐" "│" "┘" "─" "└" "│"))
+
+; A line cut to fit, with an ellipsis when it had to be.
+(def cut
+  (fn (s width)
+    (if (<= (text-width s) width) s (str-concat (str-sub s 0 (- width 1)) "…"))))
+
+; A field has to decide whether it is a number before asking for one, since
+; (number "x") is an error and an error would take the screen down with it.
+(def digits?
+  (fn (s)
+    (fold (fn (ok i) (and ok (str-find (str-sub s i (+ i 1)) "0123456789")))
+      (not (is-empty s))
+      (range (str-len s)))))
+
+; The code of a key named by one character, for a menu to compare KEY with.
+(def ALPHA "abcdefghijklmnopqrstuvwxyz")
+(def letter-code
+  (fn (ch)
+    (cond
+      ((= ch "?") 63)
+      (else
+        (let ((i (fold (fn (found k) (if (>= found 0) found (if (= (str-sub ALPHA k (+ k 1)) ch) k -1)))
+                   -1
+                   (range 26))))
+          (if (>= i 0)
+            (+ 97 i)
+            (let ((d (fold (fn (found k) (if (>= found 0) found (if (= (string k) ch) k -1)))
+                       -1
+                       (range 10))))
+              (if (>= d 0) (+ 48 d) -1))))))))
+
+; A key as a lower-case letter's code: what a screen compares against.
+(def key-lower (fn () (if (and (>= KEY 65) (<= KEY 90)) (+ KEY 32) KEY)))
+(def key-is (fn (ch) (= (key-lower) (letter-code ch))))
+(def enter? (fn () (or (= KEY 13) (= KEY 10))))
+
+; ---- the frame: rounded, dim, the title in its top edge ----
+(def ROUND (list "╭" "─" "╮" "│" "╯" "─" "╰" "│"))
+(def frame
+  (fn (top left rows cols title)
+    (fg C_DIM)
+    (box top left rows cols ROUND)
+    (fg C_TEXT)
+    (attr A_BOLD)
+    (print-at top (+ left 2) (str-concat " " title " "))
+    (pen-off)))
+
+; Lines of dim text from (row, col), each cut to width: what a screen says
+; about itself under its title.
+(def say-dim
+  (fn (row col width lines)
+    (fg C_DIM)
+    (map (fn (i) (print-at (+ row i) col (cut (nth lines i) width))) (range (length lines)))
+    (pen-off)))
+
+; ---- the legend of keys under a frame: key in soft, meaning dim ----
+(def legend
+  (fn (row col items)
+    (fold
+      (fn (c i)
+        (letv (k what) (nth items i)
+          (let ((c0 (if (= i 0) c (do (fg C_DIM) (+ c (print-at row c " • "))))))
+            (fg C_SOFT)
+            (let ((c1 (+ c0 (print-at row c0 k))))
+              (fg C_DIM)
+              (+ c1 (print-at row c1 (str-concat " " what)))))))
+      col
+      (range (length items)))
+    (pen-off)))
+
+; ---- the note: one line that says how it went ----
+; kind is "ok", "warn", "err", "wait" (a spinner in front) or anything
+; else for plain text; an empty text says nothing. A screen keeps its note
+; as NOTE and its kind as TONE.
+(def SPIN 0)
+(def SPIN_MS 0)
+(def SPINNER (list "⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏"))
+(def note-line
+  (fn (row col kind text)
+    (if (is-empty text)
+      #t
+      (do
+        (cond
+          ((= kind "ok") (do (fg C_OK) (print-at row col text)))
+          ((= kind "warn") (do (fg C_WARN) (print-at row col text)))
+          ((= kind "err") (do (fg C_ERR) (print-at row col text)))
+          ((= kind "wait")
+            (do
+              (fg C_HOT)
+              (print-at row col (nth SPINNER (mod SPIN 10)))
+              (fg C_SOFT)
+              (print-at row (+ col 2) text)))
+          (else (do (fg C_TEXT) (print-at row col text))))
+        (pen-off)))))
+
+; The spinner turns ten times a second; a tick hook calls this.
+(def spin-tick
+  (fn ()
+    (set SPIN_MS (+ SPIN_MS MS))
+    (if (>= SPIN_MS 100) (do (set SPIN (+ SPIN 1)) (set SPIN_MS 0)) #t)))
+
+; ---- a menu, the editor's way ----
+; The letter that acts in orange and bold, the word in text; when the word
+; starts with the letter they are one word, else the letter stands before
+; it. What follows " — " is the complement, dim, cut to the width given.
+; Returns the width used.
+(def hot
+  (fn (row col key label width)
+    (let ((parts (str-split "—" label))
+          (word (str-trim (head parts))))
+      (let ((joined (= (str-lower (str-sub word 0 1)) (str-lower key))))
+        (attr A_BOLD)
+        (fg C_HOT)
+        (let ((w (print-at row col (if joined (str-sub word 0 1) key))))
+          (attr 0)
+          (fg C_TEXT)
+          (let ((w2 (+ w (print-at row (+ col w) (if joined (str-sub word 1) (str-concat " " word)))))
+                (room (- width w2 3)))
+            (fg C_DIM)
+            (let ((w3 (if (and (> (length parts) 1) (> room 3))
+                        (+ w2 (print-at row (+ col w2) (str-concat " — " (cut (str-trim (nth parts 1)) room))))
+                        w2)))
+              (pen-off)
+              w3)))))))
+
+; Items (tuple key label) in ncols columns of colw cells, filled down the
+; first column and on to the next. The pointer marks the item the arrows
+; are on: ↑↓ walk the column, ←→ jump to the same row of the next one. A
+; letter opens its item at once, Enter opens the pointed one.
+(def MENU_AT 0)
+(def menu-rows (fn (n ncols) (ceil (/ n ncols))))
+(def menu-column-len (fn (n rows c) (math-min rows (- n (* c rows)))))
+
+(def menu-draw
+  (fn (top left items ncols colw)
+    (let ((rows (menu-rows (length items) ncols)))
+      (map
+        (fn (i)
+          (letv (key label) (nth items i)
+            (let ((row (+ top (mod i rows)))
+                  (col (+ left (* (floor (/ i rows)) colw))))
+              (if (= i MENU_AT)
+                (do (fg C_HOT) (attr A_BOLD) (print-at row (- col 2) "›") (pen-off))
+                #t)
+              (hot row col key label (- colw 2)))))
+        (range (length items))))))
+
+; Where the pointer goes: drow steps inside its column (wrapping over the
+; column's own items), dcol steps to another column, same row or the
+; column's last.
+(def menu-step
+  (fn (n ncols drow dcol)
+    (let ((rows (menu-rows n ncols)))
+      (let ((r (mod MENU_AT rows)) (c (floor (/ MENU_AT rows))))
+        (if (= dcol 0)
+          (+ (* c rows) (mod (+ r drow) (menu-column-len n rows c)))
+          (let ((c2 (mod (+ c dcol) ncols)))
+            (let ((len (menu-column-len n rows c2)))
+              (if (<= len 0) MENU_AT (+ (* c2 rows) (math-min r (- len 1)))))))))))
+
+; The item a key opens, -1 when it moved the pointer, -2 when it meant
+; nothing to the menu.
+(def menu-key
+  (fn (items ncols)
+    (let ((n (length items)))
+      (cond
+        ((= KEY KEY_UP) (do (set MENU_AT (menu-step n ncols -1 0)) -1))
+        ((= KEY KEY_DOWN) (do (set MENU_AT (menu-step n ncols 1 0)) -1))
+        ((= KEY KEY_LEFT) (do (set MENU_AT (menu-step n ncols 0 -1)) -1))
+        ((= KEY KEY_RIGHT) (do (set MENU_AT (menu-step n ncols 0 1)) -1))
+        ((enter?) MENU_AT)
+        (else
+          (fold
+            (fn (found i)
+              (if (>= found 0)
+                found
+                (letv (key label) (nth items i) (if (key-is (str-lower key)) i -2))))
+            -2
+            (range n)))))))
+
+; The key of the item a menu opened.
+(def item-key (fn (items i) (letv (key label) (nth items i) key)))
+
+; ---- forms, the Clipper way, in the editor's colours ----
+; Every field on the screen at once with its value; ↑↓ and Tab move between
+; fields and on to the buttons, Enter in a field goes to the next, ←→ move
+; inside a field or turn a pick, a button fires with Enter or space; Ctrl-W
+; is the first button, ESC cancels, from anywhere. The shell has one live
+; field: it is the focused one, the rest is painted. A field is
+;   (tuple "text" label width max)     one line, at most max runes
+;   (tuple "area" label width lines)   lines of text, broken at words, edited
+;                                      anywhere; Ctrl-J and a paste break lines
+;   (tuple "pick" label width options) one of a few words; ←→ or space turn it
+(def FORM_FIELDS (list))
+(def FORM_VALUES (list))
+(def FORM_BUTTONS (list))
+(def FORM_FOCUS 0)
+(def FORM_NOTE "") ; the form's own word on what was typed (a refusal)
+
+(def form-nfields (fn () (length FORM_FIELDS)))
+(def form-count (fn () (+ (form-nfields) (length FORM_BUTTONS))))
+(def form-on-field (fn () (< FORM_FOCUS (form-nfields))))
+(def form-field (fn (i) (nth FORM_FIELDS i)))
+(def form-kind (fn (i) (letv (kind label width extra) (form-field i) kind)))
+(def form-value (fn (i) (nth FORM_VALUES i)))
+(def form-focus-kind (fn () (if (form-on-field) (form-kind FORM_FOCUS) "button")))
+
+; The live field's text goes back to its value.
+(def form-commit
+  (fn ()
+    (if (and (form-on-field) (not (= (form-kind FORM_FOCUS) "pick")))
+      (set FORM_VALUES (list-set FORM_VALUES FORM_FOCUS (input-text)))
+      #t)))
+
+(def form-focus
+  (fn (i)
+    (form-commit)
+    (set FORM_FOCUS i)
+    (if (and (< i (form-nfields)) (not (= (form-kind i) "pick")))
+      (input-set (nth FORM_VALUES i))
+      (input-set ""))))
+
+(def form-open
+  (fn (fields values buttons)
+    (set FORM_FIELDS fields)
+    (set FORM_VALUES values)
+    (set FORM_BUTTONS buttons)
+    (set FORM_NOTE "")
+    (set FORM_FOCUS (form-count)) ; nothing to commit yet
+    (form-focus 0)))
+
+; Back from a form to a screen of its own: the one field the shell has
+; must not keep the last value in it.
+(def form-close
+  (fn ()
+    (set FORM_FIELDS (list))
+    (set FORM_VALUES (list))
+    (set FORM_BUTTONS (list))
+    (set FORM_NOTE "")
+    (set FORM_FOCUS 0)
+    (input-set "")))
+
+(def form-next (fn () (form-focus (mod (+ FORM_FOCUS 1) (form-count)))))
+(def form-prev (fn () (form-focus (mod (- FORM_FOCUS 1) (form-count)))))
+
+; A refusal: the focus goes to the field at fault and the note says why.
+(def form-fail (fn (i text) (form-focus i) (set FORM_NOTE text)))
+
+(def form-turn
+  (fn (dir)
+    (letv (kind label width options) (form-field FORM_FOCUS)
+      (let ((at (index-of options (form-value FORM_FOCUS))) (n (length options)))
+        (set FORM_VALUES (list-set FORM_VALUES FORM_FOCUS (nth options (mod (+ at dir) n))))))))
+
+; Enter inside a field (the input hook): the next field.
+(def form-enter (fn () (form-next)))
+
+; A key while a form is up, as a word: "moved" when the form used it,
+; the button's label in lower case when one fired (the first button is
+; what Ctrl-W means), "cancel" for ESC, "none" when the key is the
+; field's or the screen's.
+(def form-key
+  (fn ()
+    (let ((k (form-focus-kind)))
+      (cond
+        ((= KEY KEY_ESC) "cancel")
+        ((= KEY 23) (do (form-commit) (str-lower (head FORM_BUTTONS))))
+        ((= KEY KEY_UP) (do (form-prev) "moved"))
+        ((or (= KEY KEY_DOWN) (= KEY 9)) (do (form-next) "moved"))
+        ((and (= k "button") (or (enter?) (= KEY 32)))
+          (str-lower (nth FORM_BUTTONS (- FORM_FOCUS (form-nfields)))))
+        ((and (= k "pick") (or (= KEY KEY_LEFT) (= KEY KEY_RIGHT) (= KEY 32)))
+          (do (form-turn (if (= KEY KEY_LEFT) -1 1)) "moved"))
+        ((and (= k "pick") (enter?)) (do (form-next) "moved"))
+        (else "none")))))
+
+; The ground of a field: a panel at rest, orange with black text in focus.
+(def field-pen
+  (fn (focused) (if focused (pen 0 C_HOT) (pen C_TEXT C_PANEL)) (attr 0)))
+
+(def draw-area
+  (fn (row col width lines focused value)
+    (fill row col lines width " ")
+    (if focused
+      (input-at row col width (* (- width 1) lines 2) #f lines)
+      (let ((ls (wrap value (- width 1))))
+        (map (fn (j) (if (< j lines) (print-at (+ row j) col (nth ls j)) #t)) (range (length ls)))))
+    lines))
+
+; One field at row; returns the rows it took.
+(def draw-field
+  (fn (row left labelw col i)
+    (letv (kind label width extra) (form-field i)
+      (let ((focused (= i FORM_FOCUS)) (value (form-value i)))
+        (pen-off)
+        (fg C_SOFT)
+        (print-at row (+ left (- labelw (text-width label))) label)
+        (field-pen focused)
+        (cond
+          ((= kind "text")
+            (do
+              (fill row col 1 width " ")
+              (if focused (input-at row col width extra #f) (print-at row col (cut value width)))
+              1))
+          ((= kind "pick")
+            (do
+              (fill row col 1 width " ")
+              (print-at row col (cut (str-concat "‹ " value " ›") width))
+              1))
+          (else (draw-area row col width extra focused value)))))))
+
+(def draw-buttons
+  (fn (row col)
+    (fold
+      (fn (c i)
+        (let ((label (str-concat "  " (nth FORM_BUTTONS i) "  "))
+              (focused (= (+ (form-nfields) i) FORM_FOCUS)))
+          (field-pen focused)
+          (if focused (attr A_BOLD) #t)
+          (print-at row c label)
+          (pen-off)
+          (+ c (text-width label) 2)))
+      col
+      (range (length FORM_BUTTONS)))))
+
+; Paints the form from (top, left): labels right-aligned in labelw columns,
+; fields beside them, the buttons a row under the last field. Returns the
+; row after the buttons.
+(def form-draw
+  (fn (top left labelw)
+    (let ((col (+ left labelw (if (> labelw 0) 2 0))))
+      (let ((end (fold (fn (row i) (+ row (draw-field row left labelw col i))) top (range (form-nfields)))))
+        (draw-buttons (if (> (form-nfields) 0) (+ end 1) end) col)
+        (pen-off)
+        (+ end 2)))))
+
+; The rows a form takes: its fields, a gap, the buttons.
+(def form-height
+  (fn ()
+    (+ (fold (fn (n f) (letv (kind label width extra) f (+ n (if (= kind "area") extra 1)))) 0 FORM_FIELDS)
+      (if (> (form-nfields) 0) 2 1))))
+
+; ---- a table: headers in soft over a dim rule, the row under the arrows
+; in orange, "+N more" when they do not all fit ----
+; cols: (tuple header width); row-of: the i-th row as a list of strings,
+; one per column; total rows; cursor: the row marked, -1 for none; height:
+; rows shown. The window follows the cursor.
+(def table-draw
+  (fn (top left cols total row-of cursor height)
+    (let ((wide (- (fold (fn (s c) (letv (h w) c (+ s w 1))) 0 cols) 1))
+          (first (if (< cursor height) 0 (- cursor (- height 1)))))
+      (let ((shown (math-max 0 (math-min height (- total first)))))
+        (fg C_SOFT)
+        (fold (fn (c i) (letv (h w) (nth cols i) (do (print-at top c h) (+ c w 1)))) left (range (length cols)))
+        (fg C_DIM)
+        (fill (+ top 1) left 1 wide "─")
+        (map
+          (fn (r)
+            (let ((i (+ first r)) (row (+ top 2 r)))
+              (if (= i cursor)
+                (do (pen 0 C_HOT) (fill row left 1 wide " "))
+                (pen C_TEXT C_DEFAULT))
+              (let ((cells (row-of i)))
+                (fold
+                  (fn (c j) (letv (h w) (nth cols j) (do (print-at row c (cut (nth cells j) w)) (+ c w 1))))
+                  left
+                  (range (length cols))))))
+          (range shown))
+        (pen-off)
+        (if (< (+ first shown) total)
+          (do
+            (fg C_DIM)
+            (print-at (+ top 2 shown) left (str-fmt "+%d more" (- total (+ first shown))))
+            (pen-off))
+          #t)))))
+
+; The last column takes what the frame leaves.
+(def fill-cols
+  (fn (cols inner)
+    (let ((used (fold (fn (s c) (letv (h w) c (+ s w 1))) 0 (slice cols 0 (- (length cols) 1)))))
+      (letv (h w) (nth cols (- (length cols) 1))
+        (list-append (slice cols 0 (- (length cols) 1)) (tuple h (math-max 4 (- inner used))))))))
+
+; Where the arrows take a cursor over n rows, a page at a time with PgUp
+; and PgDn; the same at for any other key.
+(def cursor-move
+  (fn (at n page)
+    (cond
+      ((<= n 0) 0)
+      ((= KEY KEY_UP) (mod (- at 1) n))
+      ((= KEY KEY_DOWN) (mod (+ at 1) n))
+      ((= KEY KEY_PGUP) (math-max 0 (- at page)))
+      ((= KEY KEY_PGDN) (math-min (- n 1) (+ at page)))
+      ((= KEY KEY_HOME) 0)
+      ((= KEY KEY_END) (- n 1))
+      (else at))))
+(def cursor-key?
+  (fn ()
+    (or (= KEY KEY_UP) (= KEY KEY_DOWN) (= KEY KEY_PGUP) (= KEY KEY_PGDN) (= KEY KEY_HOME)
+      (= KEY KEY_END))))
+
+; ---- a prompt: the chat's lines of typing, ">" in orange, the text
+; breaking over rows lines and edited anywhere before Enter sends it ----
+(def prompt-at
+  (fn (row col width most rows)
+    (fg C_HOT)
+    (attr A_BOLD)
+    (print-at row col ">")
+    (pen-off)
+    (input-at row (+ col 2) (- width 2) most #f rows)))

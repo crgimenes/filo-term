@@ -25,6 +25,12 @@ their own.
 | `app` | a Filo program that owns a terminal: the entries (`init`, `draw`, `key`, `input`, `tick`), the builtins every host gives one, the error line |
 | `tty` | the app on a POSIX terminal: raw mode, resize, signals, the loop, `tty_main` for a program that is its bundle |
 
+`kit/kit.filo` is Filo, not C: the widgets a screen draws with (the
+palette, a frame, a menu, a form, a table, the legend of keys, a note line,
+a prompt). rocchetto runs a `kit.filo` at the root of its tree, or in an
+app's bundle, before the layer's `common.filo`, so a layer adds
+`kit/` to its tree and builds on it.
+
 Each registration function takes a getter (`paint_register(ctx, canvas_fn)`,
 `tbx_register(ctx, buf_fn, saved_fn)`), so the library never knows the host
 it runs in. Sizes are in `src/term_config.h`, overridden with `-D`.
