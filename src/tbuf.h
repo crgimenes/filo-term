@@ -7,9 +7,10 @@
 
 #include "term_config.h"
 
-/* The editor's text: one flat byte array, a table of line starts rebuilt
-   after every edit (64 KB is nothing to scan), a cursor as a byte offset,
-   and an anchor when there is a selection. Columns are display columns:
+/* The editor's text: one flat byte array, a table of line starts that
+   follows an edit (the starts after it shift; only the edited bytes are
+   scanned), a cursor as a byte offset, and an anchor when there is a
+   selection. Columns are display columns:
    what the terminal shows, tabs to the next stop, wide runes two. */
 enum {
     TB_CAP = FT_CFG_TB_CAP,
@@ -44,7 +45,8 @@ typedef struct {
 } tbuf;
 
 void tb_init(tbuf *t);
-/* False when it does not fit (bytes or lines). */
+/* False when it does not fit (bytes or lines). data may be t->text itself,
+   read there by the caller: a large file is not copied twice. */
 bool tb_load(tbuf *t, const uint8_t *data, size_t n);
 
 size_t tb_line_of(const tbuf *t, size_t off);

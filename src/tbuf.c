@@ -7,14 +7,54 @@
 static void reindex(tbuf *t) {
     t->nlines = 1;
     t->lines[0] = 0;
-    size_t i = 0;
-    while (i < t->len && t->nlines < TB_LINES_MAX) {
-        if (t->text[i] == '\n') {
-            t->lines[t->nlines] = i + 1;
-            t->nlines++;
-        }
-        i++;
+    const uint8_t *p = t->text;
+    const uint8_t *end = t->text + t->len;
+    while (t->nlines < TB_LINES_MAX && (p = memchr(p, '\n', (size_t)(end - p))) != NULL) {
+        p++;
+        t->lines[t->nlines] = (size_t)(p - t->text);
+        t->nlines++;
     }
+}
+
+/* The newlines in n bytes, counted up to stop. */
+static size_t newlines(const uint8_t *data, size_t n, size_t stop) {
+    size_t k = 0;
+    const uint8_t *p = data;
+    const uint8_t *end = data + n;
+    while (k < stop && (p = memchr(p, '\n', (size_t)(end - p))) != NULL) {
+        k++;
+        p++;
+    }
+    return k;
+}
+
+/* The line table after the bytes [a, a + old) became new bytes: the starts
+   inside the old span go, the ones past it move by the difference, and only
+   the new bytes are scanned, so an edit costs its own size, not the text's.
+   A start the table has no room for is dropped, as reindex drops it. */
+static void relines(tbuf *t, size_t a, size_t old, size_t new) {
+    size_t at = tb_line_of(t, a) + 1; /* the first start past a */
+    size_t from = at;
+    while (from < t->nlines && t->lines[from] <= a + old) {
+        from++;
+    }
+    size_t tail = t->nlines - from;
+    size_t k = newlines(t->text + a, new, TB_LINES_MAX - at - tail);
+    memmove(t->lines + at + k, t->lines + from, tail * sizeof(t->lines[0]));
+    for (size_t i = at + k; i < at + k + tail; i++) {
+        t->lines[i] = t->lines[i] - old + new;
+    }
+    const uint8_t *p = t->text + a;
+    const uint8_t *end = p + new;
+    for (size_t i = 0; i < k; i++) {
+        p = memchr(p, '\n', (size_t)(end - p));
+        if (p == NULL) {
+            break;
+        }
+        p++;
+        t->lines[at + i] = (size_t)(p - t->text);
+    }
+    t->nlines = at + k + tail;
 }
 
 void tb_init(tbuf *t) {
@@ -44,7 +84,7 @@ static void remove_range(tbuf *t, size_t a, size_t b) {
     memmove(t->text + a, t->text + b, t->len - b);
     t->len -= b - a;
     t->dirty = true;
-    reindex(t);
+    relines(t, a, b - a, 0);
 }
 
 static void put(tbuf *t, size_t off, const uint8_t *bytes, size_t n) {
@@ -53,7 +93,7 @@ static void put(tbuf *t, size_t off, const uint8_t *bytes, size_t n) {
     memcpy(t->text + off, bytes, n);
     t->len += n;
     t->dirty = true;
-    reindex(t);
+    relines(t, off, 0, n);
 }
 
 /* ---- undo ----
@@ -210,7 +250,7 @@ bool tb_undo(tbuf *t) {
             touched(t, r.off);
             memcpy(t->text + r.off, bytes, r.n);
             t->dirty = true;
-            reindex(t);
+            relines(t, r.off, r.n, r.n);
             break;
         }
         if (!r.chain || !record_at(t, t->undo_len, &r)) {
@@ -226,15 +266,7 @@ static bool fits(const uint8_t *data, size_t n) {
     if (n > TB_CAP) {
         return false;
     }
-    size_t nl = 1;
-    size_t i = 0;
-    while (i < n) {
-        if (data[i] == '\n') {
-            nl++;
-        }
-        i++;
-    }
-    return nl <= TB_LINES_MAX;
+    return newlines(data, n, TB_LINES_MAX) < TB_LINES_MAX;
 }
 
 bool tb_load(tbuf *t, const uint8_t *data, size_t n) {
@@ -242,7 +274,7 @@ bool tb_load(tbuf *t, const uint8_t *data, size_t n) {
         return false;
     }
     tb_init(t);
-    memcpy(t->text, data, n);
+    memmove(t->text, data, n); /* data may be t->text itself */
     t->len = n;
     reindex(t);
     return true;
@@ -378,15 +410,7 @@ bool tb_insert(tbuf *t, const uint8_t *bytes, size_t n) {
     if (n > TB_CAP - t->len) {
         return false;
     }
-    size_t nl = 0;
-    size_t i = 0;
-    while (i < n) {
-        if (bytes[i] == '\n') {
-            nl++;
-        }
-        i++;
-    }
-    if (t->nlines + nl > TB_LINES_MAX) {
+    if (t->nlines + newlines(bytes, n, TB_LINES_MAX) > TB_LINES_MAX) {
         return false;
     }
     log_insert(t, t->cur, n, chain);
@@ -580,7 +604,8 @@ bool tb_set_byte(tbuf *t, size_t off, uint8_t v) {
     if (v == '\n' && !was_nl && t->nlines >= TB_LINES_MAX) {
         return false;
     }
-    if (off == t->len) {
+    bool appended = off == t->len;
+    if (appended) {
         log_insert(t, off, 1, false);
         t->len++;
     } else {
@@ -591,7 +616,7 @@ bool tb_set_byte(tbuf *t, size_t off, uint8_t v) {
     t->anchored = false;
     t->dirty = true;
     if (was_nl || v == '\n') {
-        reindex(t);
+        relines(t, off, appended ? 0 : 1, 1);
     }
     return true;
 }

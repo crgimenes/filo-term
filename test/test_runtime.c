@@ -227,6 +227,71 @@ static void toy_resize(void *ctx) {
 
 static const term_app TOY_APP = {toy_key, toy_resize, NULL};
 
+/* The line table against one rebuilt from the text. */
+static bool lines_hold(const tbuf *t) {
+    size_t n = 1;
+    for (size_t i = 0; i < t->len; i++) {
+        if (t->text[i] == '\n') {
+            if (n >= t->nlines || t->lines[n] != i + 1) {
+                return false;
+            }
+            n++;
+        }
+    }
+    return n == t->nlines && t->lines[0] == 0;
+}
+
+static void test_tbuf_lines_follow_edits(void) {
+    static tbuf B;
+    check(tb_load(&B, (const uint8_t *)"one\ntwo\n\nfour", 13), "tbuf loads");
+    uint32_t seed = 7;
+    bool ok = true;
+    for (int step = 0; step < 4000 && ok; step++) {
+        seed = (seed * 1664525U) + 1013904223U;
+        uint32_t r = seed >> 8;
+        size_t pos = r % (B.len + 1);
+        switch (r % 10) {
+        case 0:
+        case 1:
+            tb_seek(&B, pos, false);
+            tb_insert(&B, (const uint8_t *)"a\nb\n", 1 + ((r >> 4) % 4));
+            break;
+        case 2:
+            tb_seek(&B, pos, false);
+            tb_backspace(&B);
+            break;
+        case 3:
+            tb_seek(&B, pos, false);
+            tb_delete(&B);
+            break;
+        case 4:
+            tb_seek(&B, pos, false);
+            tb_delete_line(&B);
+            break;
+        case 5:
+            tb_set_byte(&B, pos, (r >> 4) % 2 == 0 ? '\n' : 'x');
+            break;
+        case 6:
+            tb_undo(&B);
+            break;
+        case 7:
+            tb_seek(&B, pos, false);
+            tb_right(&B, true);
+            tb_right(&B, true);
+            tb_cut(&B);
+            break;
+        case 8:
+            tb_paste(&B);
+            break;
+        default:
+            tb_replace(&B, (const uint8_t *)"x\n\ny", 4, 2);
+            break;
+        }
+        ok = lines_hold(&B);
+    }
+    check(ok, "the line table follows every edit");
+}
+
 static void test_app_stack(void) {
     static toy menu, reader;
     menu = (toy){'m', 0, 0};
@@ -336,6 +401,7 @@ int main(void) {
     test_sink_diverts_output();
     test_tbuf_counts_runes();
     test_tbuf_undo();
+    test_tbuf_lines_follow_edits();
     test_app_stack();
     test_size_has_a_ceiling();
     test_cell_packs_into_one_word();
