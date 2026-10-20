@@ -169,14 +169,17 @@
 ; Items (tuple key label) in ncols columns of colw cells, filled down the
 ; first column and on to the next. The pointer marks the item the arrows
 ; are on: ↑↓ walk the column, ←→ jump to the same row of the next one. A
-; letter opens its item at once, Enter opens the pointed one.
+; letter opens its item at once, Enter opens the pointed one, and so does
+; a click (a finger) on its row: the draw remembers where the items are.
 (def MENU_AT 0)
+(def MENU_BOX (tuple 0 0 1 0 0)) ; top left ncols colw rows, as last drawn
 (def menu-rows (fn (n ncols) (ceil (/ n ncols))))
 (def menu-column-len (fn (n rows c) (math-min rows (- n (* c rows)))))
 
 (def menu-draw
   (fn (top left items ncols colw)
     (let ((rows (menu-rows (length items) ncols)))
+      (set MENU_BOX (tuple top left ncols colw rows))
       (map
         (fn (i)
           (letv (key label) (nth items i)
@@ -201,12 +204,25 @@
             (let ((len (menu-column-len n rows c2)))
               (if (<= len 0) MENU_AT (+ (* c2 rows) (math-min r (- len 1)))))))))))
 
-; The item a key opens, -1 when it moved the pointer, -2 when it meant
-; nothing to the menu.
+; The item under the last click, from the pointer's cell to the end of
+; the item's column; -1 off every item.
+(def menu-hit
+  (fn (n)
+    (letv (top left ncols colw rows) MENU_BOX
+      (if (or (<= rows 0) (< MY top) (>= MY (+ top rows)) (< MX (- left 2)))
+        -1
+        (let ((i (+ (* (floor (/ (- MX (- left 2)) colw)) rows) (- MY top))))
+          (if (and (< (floor (/ (- MX (- left 2)) colw)) ncols) (< i n)) i -1))))))
+
+; The item a key opens, -1 when it moved the pointer (or a click hit
+; nothing), -2 when it meant nothing to the menu.
 (def menu-key
   (fn (items ncols)
     (let ((n (length items)))
       (cond
+        ((= KEY KEY_CLICK)
+          (let ((i (menu-hit n)))
+            (if (>= i 0) (do (set MENU_AT i) i) -1)))
         ((= KEY KEY_UP) (do (set MENU_AT (menu-step n ncols -1 0)) -1))
         ((= KEY KEY_DOWN) (do (set MENU_AT (menu-step n ncols 1 0)) -1))
         ((= KEY KEY_LEFT) (do (set MENU_AT (menu-step n ncols 0 -1)) -1))
@@ -387,12 +403,15 @@
 ; in orange, "+N more" when they do not all fit ----
 ; cols: (tuple header width); row-of: the i-th row as a list of strings,
 ; one per column; total rows; cursor: the row marked, -1 for none; height:
-; rows shown. The window follows the cursor.
+; rows shown. The window follows the cursor. The draw remembers where the
+; rows are, so a click (a finger) on one marks it and a second opens it.
+(def TABLE_BOX (tuple 0 0 0 -1)) ; top first shown cursor, as last drawn
 (def table-draw
   (fn (top left cols total row-of cursor height)
     (let ((wide (- (fold (fn (s c) (letv (h w) c (+ s w 1))) 0 cols) 1))
           (first (if (< cursor height) 0 (- cursor (- height 1)))))
       (let ((shown (math-max 0 (math-min height (- total first)))))
+        (set TABLE_BOX (tuple top first shown cursor))
         (fg C_SOFT)
         (fold (fn (c i) (letv (h w) (nth cols i) (do (print-at top c h) (+ c w 1)))) left (range (length cols)))
         (fg C_DIM)
@@ -424,12 +443,23 @@
       (letv (h w) (nth cols (- (length cols) 1))
         (list-append (slice cols 0 (- (length cols) 1)) (tuple h (math-max 4 (- inner used))))))))
 
+; The row under the last click, -1 off every row: any column counts.
+(def table-hit
+  (fn ()
+    (letv (top first shown cursor) TABLE_BOX
+      (if (and (> shown 0) (>= MY (+ top 2)) (< MY (+ top 2 shown))) (+ first (- MY (+ top 2))) -1))))
+; A click on the row already marked: the second tap, the one that opens.
+(def pick-click?
+  (fn ()
+    (and (= KEY KEY_CLICK) (letv (top first shown cursor) TABLE_BOX (and (>= cursor 0) (= (table-hit) cursor))))))
+
 ; Where the arrows take a cursor over n rows, a page at a time with PgUp
-; and PgDn; the same at for any other key.
+; and PgDn, a click to its row; the same at for any other key.
 (def cursor-move
   (fn (at n page)
     (cond
       ((<= n 0) 0)
+      ((= KEY KEY_CLICK) (let ((i (table-hit))) (if (>= i 0) i at)))
       ((= KEY KEY_UP) (mod (- at 1) n))
       ((= KEY KEY_DOWN) (mod (+ at 1) n))
       ((= KEY KEY_PGUP) (math-max 0 (- at page)))
@@ -440,7 +470,7 @@
 (def cursor-key?
   (fn ()
     (or (= KEY KEY_UP) (= KEY KEY_DOWN) (= KEY KEY_PGUP) (= KEY KEY_PGDN) (= KEY KEY_HOME)
-      (= KEY KEY_END))))
+      (= KEY KEY_END) (and (= KEY KEY_CLICK) (not (pick-click?))))))
 
 ; ---- a prompt: the chat's lines of typing, ">" in orange, the text
 ; breaking over rows lines and edited anywhere before Enter sends it ----

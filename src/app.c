@@ -387,6 +387,11 @@ static void on_input(void *user, keyin_event ev, uint32_t cp) {
     case KEYIN_ESC:
         cp = FT_KEY_ESC;
         break;
+    case KEYIN_MOUSE:
+        a->t.mouse_col = (uint16_t)(cp & 0xFFFFU);
+        a->t.mouse_row = (uint16_t)(cp >> 16U);
+        cp = FT_KEY_CLICK;
+        break;
     case KEYIN_KEY:
         if (cp == 0x03) {
             cp = FT_KEY_ESC; /* raw mode turns Ctrl-C into a byte; it leaves, as Esc does */

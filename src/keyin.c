@@ -110,6 +110,44 @@ static bool paste_mark(const keyin *k, keyin_emit emit, void *user) {
     return false;
 }
 
+/* CSI < b ; x ; y M is a button pressed at a cell, m released (SGR mouse,
+   ?1006): the left button is a click, the wheel is an arrow, and the rest
+   (drags, other buttons, releases) is nobody's. The cell comes 1-based.
+   True when the sequence was a report, whatever it meant. */
+static bool mouse_report(const keyin *k, uint8_t final, keyin_emit emit, void *user) {
+    if (k->csi_len == 0 || k->csi[0] != '<' || (final != 'M' && final != 'm')) {
+        return false;
+    }
+    uint32_t p[3] = {0, 0, 0};
+    size_t np = 0;
+    for (size_t i = 1; i < k->csi_len; i++) {
+        uint8_t c = k->csi[i];
+        if (c == ';') {
+            np++;
+            if (np >= 3) {
+                return true;
+            }
+            continue;
+        }
+        if (c < '0' || c > '9') {
+            return true;
+        }
+        p[np] = (p[np] * 10) + (uint32_t)(c - '0');
+    }
+    if (np != 2 || p[1] == 0 || p[2] == 0 || final == 'm') {
+        return true;
+    }
+    uint32_t button = p[0] & ~0x1CU; /* shift, alt and ctrl do not change the button */
+    if (button == 64) {
+        emit(user, KEYIN_KEY, FT_KEY_UP);
+    } else if (button == 65) {
+        emit(user, KEYIN_KEY, FT_KEY_DOWN);
+    } else if (button == 0) {
+        emit(user, KEYIN_MOUSE, ((p[2] - 1U) << 16U) | ((p[1] - 1U) & 0xFFFFU));
+    }
+    return true;
+}
+
 void keyin_feed(keyin *k, uint8_t b, keyin_emit emit, void *user) {
     if (k->esc == 1) {
         if (b == '[' || b == 'O') {
@@ -152,6 +190,9 @@ void keyin_feed(keyin *k, uint8_t b, keyin_emit emit, void *user) {
         if (k->ss3 || (b >= 0x40 && b <= 0x7E)) {
             k->esc = 0;
             if (b == '~' && paste_mark(k, emit, user)) {
+                return;
+            }
+            if (mouse_report(k, b, emit, user)) {
                 return;
             }
             uint32_t key = csi_key(k, b);

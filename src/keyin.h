@@ -8,7 +8,8 @@
 #include "utf8.h"
 
 /* A terminal's input decoded into keys: UTF-8 into runes, CSI and SS3
-   sequences into the synthetic codes of keys.h (modifiers included), ESC
+   sequences into the synthetic codes of keys.h (modifiers included), SGR
+   mouse reports into a click or a pair of arrows for the wheel, ESC
    alone told apart from the start of a sequence by time, bracketed paste
    marked, and whatever the terminal sends back unasked (OSC, DCS and their
    kin) swallowed whole. Who gets each key is the caller's business. */
@@ -22,6 +23,7 @@ typedef enum {
     KEYIN_ESC,         /* ESC, alone */
     KEYIN_PASTE_BEGIN, /* what follows was pasted, not typed */
     KEYIN_PASTE_END,
+    KEYIN_MOUSE,       /* the left button pressed: cp is row << 16 | col, 0-based */
 } keyin_event;
 
 typedef void (*keyin_emit)(void *user, keyin_event ev, uint32_t cp);

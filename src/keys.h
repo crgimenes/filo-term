@@ -20,6 +20,9 @@ enum {
     FT_KEY_END = 0xE007,
     FT_KEY_DEL = 0xE008,
     FT_KEY_INS = 0xE009,
+    /* the left button pressed on a cell; the host says which (term's
+       mouse_col and mouse_row, the screen's MX and MY) */
+    FT_KEY_CLICK = 0xE00A,
     FT_KEY_ESC = 0xE00F,
     /* F1 to F12 are FT_KEY_F1 + 0 to 11: codes with bits 4 to 6 clear, as
        every key's, since those carry the modifiers */

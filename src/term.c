@@ -62,7 +62,9 @@ bool term_app_enter(term *t, const term_app *app, void *ctx) {
         return false;
     }
     if (t->napps == 0) {
-        term_puts(t, "\x1b[?2004h"); /* pastes arrive marked while an app is up */
+        /* pastes arrive marked and clicks reported while an app is up; at the
+           prompt a drag keeps selecting text, so the mouse goes back there */
+        term_puts(t, "\x1b[?2004h\x1b[?1000h\x1b[?1006h");
     }
     if (!t->alt) {
         term_puts(t, "\x1b[?1049h"); /* the stack owns the alternate screen */
@@ -84,7 +86,7 @@ bool term_app_leave(term *t) {
     /* leave no attribute behind: SGR, cursor visibility and wheel mode all
        survive the buffer switch and would bleed into whatever had the
        terminal before. */
-    term_puts(t, "\x1b[0m\x1b[?25h\x1b[?1007l\x1b[?2004l\x1b[?1049l\x1b[0m");
+    term_puts(t, "\x1b[0m\x1b[?25h\x1b[?1007l\x1b[?1006l\x1b[?1000l\x1b[?2004l\x1b[?1049l\x1b[0m");
     t->alt = false;
     t->pasting = false;
     return true;

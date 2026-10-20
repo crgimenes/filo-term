@@ -48,6 +48,10 @@ typedef struct term {
     /* between CSI 200~ and 201~: apps hold their repaint to the end */
     bool pasting;
 
+    /* the cell of the last click (FT_KEY_CLICK), 0-based */
+    uint16_t mouse_col;
+    uint16_t mouse_row;
+
     /* The app stack: menu over area over reader. Empty means whoever owns
        the session (a shell, a firmware's main loop) has the keys. */
     const term_app *apps[TERM_APPS_MAX];
