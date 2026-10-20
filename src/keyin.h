@@ -23,7 +23,7 @@ typedef enum {
     KEYIN_ESC,         /* ESC, alone */
     KEYIN_PASTE_BEGIN, /* what follows was pasted, not typed */
     KEYIN_PASTE_END,
-    KEYIN_MOUSE,       /* the left button pressed: cp is row << 16 | col, 0-based */
+    KEYIN_MOUSE, /* the left button pressed: cp is row << 16 | col, 0-based */
 } keyin_event;
 
 typedef void (*keyin_emit)(void *user, keyin_event ev, uint32_t cp);
