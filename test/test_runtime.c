@@ -395,6 +395,30 @@ static void test_cell_packs_into_one_word(void) {
     check(c->raw != fg1, "raw sees a change of colour");
 }
 
+/* Art drawn with true colour (38;2;r;g;b, 48;2;...), as converters write
+   it, lands as the nearest of the 256; its numbers are never taken for
+   codes of their own (the 2 was dim, a 0 a reset); a fg and a bg in true
+   colour together fit one sequence. The capture also tells how far it drew. */
+static void test_capture_true_colour(void) {
+    cv_reset(&WORK, 4, 20);
+    cv_capture cap;
+    cv_capture_begin_at(&cap, &WORK, 0, 0);
+    static const char art[] = "\x1b[38;2;255;0;0;48;2;0;0;0mR"
+                              "\x1b[0;38;2;128;128;128mG"
+                              "\x1b[1;38;2;255;175;0mO"
+                              "\x1b[0;38;2;169;85;0;40mB";
+    cv_capture_feed(&cap, (const uint8_t *)art, sizeof(art) - 1);
+    const cv_cell *c = WORK.cells[0];
+    check(c[0].cp == 'R' && c[0].fg == 196 && c[0].bg == 16, "red on black: 196 on 16");
+    check(c[0].attr == 0, "the 2 of 38;2 is no dim");
+    check(c[1].fg == 244 && c[1].bg == CV_COLOR_DEFAULT, "a mid grey is a grey of the ramp");
+    check(c[2].fg == 214 && c[2].attr == CV_A_BOLD, "amber, bold kept");
+    check(c[3].fg == 130 && c[3].bg == 0, "a brown, then a 16-colour ground in the same sequence");
+    check(cap.rows == 1 && cap.cols == 4, "the capture measures what it drew");
+    check(cv_rgb_to_256(255, 255, 255) == 231 && cv_rgb_to_256(0, 0, 0) == 16,
+          "the ends of the cube");
+}
+
 int main(void) {
     test_box_and_bar();
     test_output_and_width();
@@ -405,6 +429,7 @@ int main(void) {
     test_app_stack();
     test_size_has_a_ceiling();
     test_cell_packs_into_one_word();
+    test_capture_true_colour();
     if (NFAIL > 0) {
         printf("%zu runtime checks failed\n", NFAIL);
         return 1;

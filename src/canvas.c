@@ -387,6 +387,49 @@ void cv_capture_begin_at(cv_capture *cap, canvas *c, int32_t row, int32_t col) {
     cap->cols = 0;
 }
 
+enum { CSI_PARAMS = 16 };
+
+/* The nearest xterm colour to an RGB: of the 6x6x6 cube's and the 24
+   greys', the closer by squared distance. */
+static uint32_t cube_level(uint32_t v) {
+    if (v < 48) {
+        return 0;
+    }
+    if (v < 115) {
+        return 1;
+    }
+    return (v - 35) / 40;
+}
+
+static uint32_t sq(uint32_t a, uint32_t b) {
+    uint32_t d = a > b ? a - b : b - a;
+    return d * d;
+}
+
+uint8_t cv_rgb_to_256(uint32_t r, uint32_t g, uint32_t b) {
+    static const uint32_t steps[6] = {0, 95, 135, 175, 215, 255};
+    r = r > 255 ? 255 : r;
+    g = g > 255 ? 255 : g;
+    b = b > 255 ? 255 : b;
+    uint32_t cr = cube_level(r);
+    uint32_t cg = cube_level(g);
+    uint32_t cb = cube_level(b);
+    uint32_t cube_d = sq(r, steps[cr]) + sq(g, steps[cg]) + sq(b, steps[cb]);
+    uint32_t avg = (r + g + b) / 3;
+    uint32_t grey = 0;
+    if (avg > 238) {
+        grey = 23;
+    } else if (avg >= 8) {
+        grey = (avg - 8) / 10;
+    }
+    uint32_t gv = 8 + (grey * 10);
+    uint32_t grey_d = sq(r, gv) + sq(g, gv) + sq(b, gv);
+    if (grey_d < cube_d) {
+        return (uint8_t)(232 + grey);
+    }
+    return (uint8_t)(16 + (36 * cr) + (6 * cg) + cb);
+}
+
 static void cap_sgr(cv_capture *cap, const uint32_t *ps, size_t n) {
     if (n == 0) {
         cap->pen = blank_cell;
@@ -419,6 +462,16 @@ static void cap_sgr(cv_capture *cap, const uint32_t *ps, size_t n) {
         } else if (p == 48 && i + 2 < n && ps[i + 1] == 5) {
             cap->pen.bg = (int16_t)ps[i + 2];
             i += 2;
+        } else if ((p == 38 || p == 48) && i + 4 < n && ps[i + 1] == 2) {
+            /* true colour, as a converter writes it: the cell keeps the
+               nearest of the 256 */
+            int16_t c = (int16_t)cv_rgb_to_256(ps[i + 2], ps[i + 3], ps[i + 4]);
+            if (p == 38) {
+                cap->pen.fg = c;
+            } else {
+                cap->pen.bg = c;
+            }
+            i += 4;
         } else if (p == 39) {
             cap->pen.fg = CV_COLOR_DEFAULT;
         } else if (p == 49) {
@@ -455,13 +508,13 @@ void cv_capture_feed(cv_capture *cap, const uint8_t *data, size_t n) {
         uint8_t b = data[i];
         if (b == 0x1B && i + 1 < n && data[i + 1] == '[') {
             i += 2;
-            uint32_t ps[8] = {0};
+            uint32_t ps[CSI_PARAMS] = {0}; /* a true-colour fg and bg take eleven */
             size_t np = 0;
             bool have_digit = false;
             while (i < n) {
                 uint8_t f = data[i];
                 if (f >= '0' && f <= '9') {
-                    if (np < 8) {
+                    if (np < CSI_PARAMS) {
                         ps[np] = (ps[np] * 10) + (uint32_t)(f - '0');
                     }
                     have_digit = true;
@@ -469,7 +522,7 @@ void cv_capture_feed(cv_capture *cap, const uint8_t *data, size_t n) {
                     continue;
                 }
                 if (f == ';') {
-                    if (np < 8) {
+                    if (np < CSI_PARAMS) {
                         np++;
                     }
                     have_digit = true;
@@ -478,7 +531,7 @@ void cv_capture_feed(cv_capture *cap, const uint8_t *data, size_t n) {
                 }
                 break;
             }
-            if (have_digit && np < 8) {
+            if (have_digit && np < CSI_PARAMS) {
                 np++;
             }
             if (i >= n) {

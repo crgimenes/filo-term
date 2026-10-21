@@ -521,6 +521,7 @@
 ; shadow; a panel's labels and dots.
 (def EMBER (list 230 223 222 215 209 203))
 (def C_SHADOW 88)
+(def C_SHADE 238) ; a box's cast shade: quieter than the logo's shadow
 (def C_LABEL 215)
 (def C_DOTS 131)
 
@@ -535,6 +536,22 @@
           (print-at row (+ col i) (str-sub text i (+ i 1))))
         (range n))
       (pen-off))))
+
+; Letters set apart, words further: "P R E S E N T S", the way a BBS
+; title said things.
+(def spaced
+  (fn (text)
+    (str-join "   " (map (fn (w) (str-join " " (map (fn (i) (str-sub w i (+ i 1))) (range (str-len w)))))
+                       (filter (fn (w) (not (is-empty w))) (str-split " " text))))))
+
+; A shadow of shade blocks to the right of a frame and under it, one cell
+; off, as a box was drawn on a BBS: for the art screens.
+(def frame-shadow
+  (fn (top left rows cols)
+    (fg C_SHADE)
+    (map (fn (r) (print-at (+ top 1 r) (+ left cols) "▒")) (range rows))
+    (print-at (+ top rows) (+ left 1) (str-join "" (map (fn (i) "▒") (range cols))))
+    (pen-off)))
 
 ; A frame whose title is in the gradient: the frame of an art screen.
 (def frame-art

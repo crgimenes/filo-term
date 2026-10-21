@@ -154,4 +154,7 @@ void cv_capture_begin(cv_capture *cap, canvas *c);
 void cv_capture_begin_at(cv_capture *cap, canvas *c, int32_t row, int32_t col);
 void cv_capture_feed(cv_capture *cap, const uint8_t *data, size_t n);
 
+/* The nearest of the 256 xterm colours to a true colour (r, g, b 0..255). */
+uint8_t cv_rgb_to_256(uint32_t r, uint32_t g, uint32_t b);
+
 #endif
