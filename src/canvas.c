@@ -383,6 +383,8 @@ void cv_capture_begin_at(cv_capture *cap, canvas *c, int32_t row, int32_t col) {
     cap->col0 = col;
     cap->fragment = true;
     cap->pen = blank_cell;
+    cap->rows = 0;
+    cap->cols = 0;
 }
 
 static void cap_sgr(cv_capture *cap, const uint32_t *ps, size_t n) {
@@ -436,6 +438,12 @@ static void cap_putc(cv_capture *cap, uint32_t cp) {
         w = 1; /* a rune with no width of its own still costs the source a step */
     }
     cap->col += w;
+    if (cap->row + 1 > cap->rows) {
+        cap->rows = cap->row + 1;
+    }
+    if (cap->col > cap->cols) {
+        cap->cols = cap->col;
+    }
 }
 
 void cv_capture_feed(cv_capture *cap, const uint8_t *data, size_t n) {

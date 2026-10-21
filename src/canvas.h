@@ -144,6 +144,10 @@ typedef struct {
     int32_t col0;
     bool fragment;
     cv_cell pen;
+    /* how far the bytes drew, rows and columns from the origin, clipped or
+       not: the size of a piece of art, for whoever scrolls over it */
+    int32_t rows;
+    int32_t cols;
 } cv_capture;
 
 void cv_capture_begin(cv_capture *cap, canvas *c);
