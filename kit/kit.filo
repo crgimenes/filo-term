@@ -88,6 +88,36 @@
     (print-at top (+ left 2) (str-concat " " title " "))
     (pen-off)))
 
+; A signature in the frame's bottom edge, to the right: "[ SysOp crg ]".
+(def frame-sign
+  (fn (top left rows cols text)
+    (let ((s (cut text (- cols 10))))
+      (let ((c (- (+ left cols) (str-len s) 7)))
+        (fg C_DIM)
+        (print-at (+ top rows -1) c "[ ")
+        (attr A_BOLD)
+        (grad-print (+ top rows -1) (+ c 2) s EMBER)
+        (fg C_DIM)
+        (print-at (+ top rows -1) (+ c 2 (str-len s)) " ]")
+        (pen-off)))))
+
+; A fact on one row of width cells: the label in ember, the value at the
+; right end, dark ember dots between. The dots sit on even columns, so the
+; rows of a panel line them up.
+(def leader
+  (fn (row col width label value)
+    (let ((v (cut value (math-max 1 (- width (str-len label) 4)))))
+      (let ((from (+ col (str-len label) 1))
+            (to (- (+ col width) (str-len v) 1)))
+        (fg C_LABEL)
+        (print-at row col label)
+        (fg C_DOTS)
+        (print-at row from
+          (str-join "" (map (fn (c) (if (= (mod c 2) 0) "·" " ")) (range from to))))
+        (fg C_TEXT)
+        (print-at row (+ to 1) v)
+        (pen-off)))))
+
 ; Lines of dim text from (row, col), each cut to width: what a screen says
 ; about itself under its title.
 (def say-dim
@@ -481,3 +511,51 @@
     (print-at row col ">")
     (pen-off)
     (input-at row (+ col 2) (- width 2) most #f rows)))
+
+; ---- art: a logo's faces in a gradient, its shadow in one colour ----
+; Only the art screens spend colour like this (the front, a splash, the
+; logoff); a screen that acts keeps to the palette above. A block rune is a
+; face and takes its row's colour (the last one repeats); any other rune
+; that is not a space is the shadow's (the ╗╔═║╚╝ of an ANSI Shadow font).
+; The art's colours: ember, white-hot to coral, the front's logo; its
+; shadow; a panel's labels and dots.
+(def EMBER (list 230 223 222 215 209 203))
+(def C_SHADOW 88)
+(def C_LABEL 215)
+(def C_DOTS 131)
+
+; Text with its colours spread across its letters, first to last: a
+; heading on an art screen.
+(def grad-print
+  (fn (row col text colours)
+    (let ((n (str-len text)) (k (length colours)))
+      (map
+        (fn (i)
+          (fg (nth colours (math-min (- k 1) (floor (/ (* i k) (math-max 1 n))))))
+          (print-at row (+ col i) (str-sub text i (+ i 1))))
+        (range n))
+      (pen-off))))
+
+; A frame whose title is in the gradient: the frame of an art screen.
+(def frame-art
+  (fn (top left rows cols title colours)
+    (frame top left rows cols title)
+    (attr A_BOLD)
+    (grad-print top (+ left 3) title colours)))
+
+(def LOGO_FACE "█▀▄▌▐▓▒░")
+(def logo-draw
+  (fn (top left lines faces shadow)
+    (map
+      (fn (r)
+        (let ((line (nth lines r))
+              (face (nth faces (math-min r (- (length faces) 1)))))
+          (map
+            (fn (i)
+              (let ((ch (str-sub line i (+ i 1))))
+                (if (= ch " ")
+                  #t
+                  (do (fg (if (str-find ch LOGO_FACE) face shadow)) (print-at (+ top r) (+ left i) ch)))))
+            (range (str-len line)))))
+      (range (length lines)))
+    (pen-off)))

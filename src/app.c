@@ -334,6 +334,10 @@ static void core_key(void *ctx, uint32_t cp) {
         }
     } else if (has(a, "key")) {
         set_num(a, "KEY", cp);
+        if (cp == FT_KEY_CLICK) {
+            set_num(a, "MX", a->t.mouse_col);
+            set_num(a, "MY", a->t.mouse_row);
+        }
         (void)run(a, "key", budget);
     }
     if (a->done) {
@@ -465,6 +469,9 @@ static void globals(app *a) {
         {"KEY_SHIFT", FT_KEY_SHIFT},
         {"KEY_ALT", FT_KEY_ALT},
         {"KEY_CTRL", FT_KEY_CTRL},
+        {"KEY_CLICK", FT_KEY_CLICK}, /* the kit's menus and tables take a click */
+        {"MX", 0},
+        {"MY", 0},
     };
     for (size_t i = 0; i < sizeof(g) / sizeof(g[0]); i++) {
         set_num(a, g[i].name, g[i].v);

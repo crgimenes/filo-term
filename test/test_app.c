@@ -128,6 +128,21 @@ static void test_kit_and_common(void) {
     check(strstr(row(0), "from the kit, then common") != NULL, "kit, common, then init");
 }
 
+/* A click reaches the key entry as KEY_CLICK with its cell in MX and MY:
+   the kit's menus and tables are built on them, so every app has them. */
+static void test_click(void) {
+    static const entry_src p[] = {
+        {"init", "(def at \"none\")"},
+        {"draw", "(print-at 0 0 at)"},
+        {"key", "(if (= KEY KEY_CLICK) (set at (str-fmt \"click %d,%d\" MX MY)) #t)"},
+    };
+    check(build(p, 3), "builds with a click");
+    check(start(), "starts with a click");
+    static const char sgr[] = "\x1b[<0;10;3M";
+    app_input(&A, (const uint8_t *)sgr, sizeof(sgr) - 1);
+    check(strstr(row(0), "click 9,2") != NULL, "a click names its cell");
+}
+
 /* input-set seeds the field, and inside the input entry what it put
    stays: a form moves its one field to the next value, keeping the text of
    the one it leaves. */
@@ -363,6 +378,7 @@ int main(void) {
     test_resize_inside_an_entry();
     test_refuses_missing();
     test_profile();
+    test_click();
     if (nfail > 0) {
         printf("%zu app tests failed\n", nfail);
         return 1;
