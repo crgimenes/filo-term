@@ -35,15 +35,17 @@ build/%.o: src/%.c $(HDRS)
 	$(CC) -O2 $(FLAGS) -c -o $@ $<
 
 # The runtime driven without any shell: a framed box, a status bar, the
-# text buffer (its undo log as small as a small device's), under the
-# sanitizers.
+# text buffer (its undo log as small as a small device's), the pager, the
+# markdown renderer and the highlighter, under the sanitizers; then the
+# app core with the text buffer's builtins and the POSIX loop on a pty.
+RUNTIME_SRC = $(addprefix src/,term.c canvas.c utf8.c tbuf.c pager.c md.c hl.c)
 test: test/test_runtime.c test/test_app.c $(SRC) $(HDRS)
 	@mkdir -p build
 	$(CC) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all $(FLAGS) \
-		-DFT_CFG_TB_UNDO=512 -o build/test_runtime src/term.c src/canvas.c src/utf8.c src/tbuf.c test/test_runtime.c
+		-DFT_CFG_TB_UNDO=512 -o build/test_runtime $(RUNTIME_SRC) test/test_runtime.c
 	./build/test_runtime
 	$(CC) -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all $(FLAGS) \
-		-o build/test_app $(APPSRC) $(FILOSRC) test/test_app.c
+		-o build/test_app $(APPSRC) src/tbuf.c src/tbx.c src/hl.c src/tty.c $(FILOSRC) $(FILO)/filo_fmt.c test/test_app.c
 	./build/test_app
 
 # Needs a clang with libFuzzer (LLVM=/path/bin where the system's has none).
@@ -59,9 +61,9 @@ fuzz: fuzz/fuzz_keyin.c src/keyin.c src/utf8.c $(HDRS)
 cov: test/test_runtime.c test/test_app.c $(SRC) $(HDRS)
 	@rm -rf build/cov && mkdir -p build/cov
 	$(CC) -O1 -g -fprofile-instr-generate -fcoverage-mapping $(FLAGS) \
-		-DFT_CFG_TB_UNDO=512 -o build/cov/test_runtime src/term.c src/canvas.c src/utf8.c src/tbuf.c test/test_runtime.c
+		-DFT_CFG_TB_UNDO=512 -o build/cov/test_runtime $(RUNTIME_SRC) test/test_runtime.c
 	$(CC) -O1 -g -fprofile-instr-generate -fcoverage-mapping $(FLAGS) \
-		-o build/cov/test_app $(APPSRC) $(FILOSRC) test/test_app.c
+		-o build/cov/test_app $(APPSRC) src/tbuf.c src/tbx.c src/hl.c src/tty.c $(FILOSRC) $(FILO)/filo_fmt.c test/test_app.c
 	LLVM_PROFILE_FILE=build/cov/runtime.profraw ./build/cov/test_runtime > /dev/null
 	LLVM_PROFILE_FILE=build/cov/app.profraw ./build/cov/test_app > /dev/null
 	$(LLVM_PROFDATA) merge -sparse -o build/cov/all.profdata build/cov/runtime.profraw build/cov/app.profraw

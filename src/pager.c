@@ -276,6 +276,9 @@ static void pager_wrap(pager *p, const term *t) {
     while (i < p->text_len && p->nrows < PAGER_ROWS_MAX) {
         i = wrap_line(p, i, cols);
     }
+    if (i < p->text_len) { /* lines past the row ceiling: the status says so */
+        p->truncated = true;
+    }
 }
 
 /* ---- painting ---- */
