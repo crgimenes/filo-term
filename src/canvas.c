@@ -77,6 +77,7 @@ void cv_pen(canvas *c, int16_t fg, int16_t bg, uint8_t attr) {
 }
 
 void cv_clear(canvas *c) {
+    c->nlinks = 0;
     uint16_t y = 0;
     while (y < c->rows) {
         uint16_t x = 0;
@@ -239,6 +240,64 @@ void cv_box(canvas *c, int32_t row, int32_t col, int32_t rows, int32_t cols,
     tile(c, last_row, col, 1, 0, 1, border[6]);
 }
 
+bool cv_link_add(canvas *c, int32_t row, int32_t col, int32_t cols, cv_text url) {
+    if (url.ptr == NULL || url.len == 0 || url.len >= CV_LINK_LEN || cols <= 0) {
+        return false;
+    }
+    size_t i = 0;
+    while (i < url.len) {
+        if (url.ptr[i] <= ' ' || url.ptr[i] > '~') {
+            return false;
+        }
+        i++;
+    }
+    uint8_t at = 0;
+    while (at < c->nlinks) {
+        if (c->links[at].row == row && c->links[at].col == col) {
+            break;
+        }
+        at++;
+    }
+    if (at == c->nlinks) {
+        if (c->nlinks == CV_LINKS_MAX) {
+            return false;
+        }
+        c->nlinks++;
+    }
+    cv_link *l = &c->links[at];
+    l->row = row;
+    l->col = col;
+    l->cols = cols;
+    memcpy(l->url, url.ptr, url.len);
+    l->url[url.len] = '\0';
+    return true;
+}
+
+/* The link over a cell, or NULL. */
+static const char *link_of(const canvas *c, int32_t row, int32_t col) {
+    uint8_t i = 0;
+    while (i < c->nlinks) {
+        const cv_link *l = &c->links[i];
+        if (l->row == row && col >= l->col && col < l->col + l->cols) {
+            return l->url;
+        }
+        i++;
+    }
+    return NULL;
+}
+
+static bool same_link(const canvas *a, const canvas *b, int32_t row, int32_t col) {
+    if (a->nlinks == 0 && b->nlinks == 0) {
+        return true;
+    }
+    const char *la = link_of(a, row, col);
+    const char *lb = link_of(b, row, col);
+    if (la == NULL || lb == NULL) {
+        return la == lb;
+    }
+    return strcmp(la, lb) == 0;
+}
+
 void cv_blit(canvas *dst, int32_t row, int32_t col, const canvas *src) {
     int32_t y = 0;
     while (y < (int32_t)src->rows) {
@@ -263,6 +322,8 @@ void cv_copy(canvas *dst, const canvas *src) {
         memcpy(dst->cells[y], src->cells[y], (size_t)src->cols * sizeof(cv_cell));
         y++;
     }
+    dst->nlinks = src->nlinks;
+    memcpy(dst->links, src->links, (size_t)src->nlinks * sizeof(cv_link));
 }
 
 /* ---- emitting ---- */
@@ -295,6 +356,22 @@ static void emit_cell(term *t, const cv_cell *cell, cv_cell *pen) {
     term_write(t, buf, n);
 }
 
+/* Opens the link over the cell about to go out, closing the one before. */
+static void link_switch(term *t, const char **open, const char *want) {
+    if (*open == want) {
+        return;
+    }
+    if (*open != NULL) {
+        term_puts(t, "\x1b]8;;\x1b\\");
+    }
+    if (want != NULL) {
+        term_puts(t, "\x1b]8;;");
+        term_puts(t, want);
+        term_puts(t, "\x1b\\");
+    }
+    *open = want;
+}
+
 static bool same_cell(const cv_cell *a, const cv_cell *b) {
     return a->raw == b->raw;
 }
@@ -322,6 +399,7 @@ void cv_flush(term *t, canvas *shown, const canvas *next) {
     }
     term_puts(t, "\x1b[0m");
     cv_cell pen = blank_cell;
+    const char *open = NULL;
     bool placed = false;
     uint16_t cur_row = 0;
     uint16_t cur_col = 0;
@@ -341,6 +419,9 @@ void cv_flush(term *t, canvas *shown, const canvas *next) {
                 same = same_cell(&next->cells[y][x + 1], &shown->cells[y][x + 1]);
             }
             if (same) {
+                same = same_link(next, shown, y, x);
+            }
+            if (same) {
                 x = (uint16_t)(x + span);
                 continue;
             }
@@ -350,6 +431,7 @@ void cv_flush(term *t, canvas *shown, const canvas *next) {
             }
             if (bridged) {
                 while (cur_col < x) {
+                    link_switch(t, &open, link_of(next, y, cur_col));
                     emit_cell(t, &next->cells[y][cur_col], &pen);
                     cur_col++;
                 }
@@ -357,6 +439,7 @@ void cv_flush(term *t, canvas *shown, const canvas *next) {
                 term_put_at(t, (uint16_t)(x + 1), (uint16_t)(y + 1));
                 placed = true;
             }
+            link_switch(t, &open, link_of(next, y, x));
             emit_cell(t, cell, &pen);
             cur_row = y;
             cur_col = (uint16_t)(x + span);
@@ -364,6 +447,7 @@ void cv_flush(term *t, canvas *shown, const canvas *next) {
         }
         y++;
     }
+    link_switch(t, &open, NULL);
     term_puts(t, "\x1b[0m");
     cv_copy(shown, next);
 }

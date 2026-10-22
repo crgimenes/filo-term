@@ -7,7 +7,7 @@
 #include "filo.h"
 
 /* What a Filo program paints with: the builtins over a canvas, apart from
-   any host — print-at, fill, box, fg, bg, attr, text-width, and the canvas
+   any host — print-at, link-at, fill, box, fg, bg, attr, text-width, and the canvas
    read back as memory (tag, cell-at, tag-at). The host registers them with
    the function that gives the canvas of the program running; screens of
    a shell and programs of their own draw the same way. */

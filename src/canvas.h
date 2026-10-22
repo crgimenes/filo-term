@@ -76,11 +76,28 @@ cv_text cv_cstr(const char *s);
 /* Display columns the text occupies, which is not its length in runes. */
 size_t cv_text_width(cv_text s);
 
+/* A run of cells on one row that opens a URL (OSC 8), which a terminal
+   offers to a click. A handful per screen is all a menu of links needs, and
+   the spare bits of a cell already belong to tag. */
+enum {
+    CV_LINKS_MAX = 16,
+    CV_LINK_LEN = 256,
+};
+
+typedef struct {
+    int32_t row;
+    int32_t col;
+    int32_t cols;
+    char url[CV_LINK_LEN];
+} cv_link;
+
 typedef struct {
     cv_cell cells[TERM_ROWS_MAX][TERM_COLS_MAX];
     uint16_t rows;
     uint16_t cols;
     cv_cell pen; /* cp unused: the colors and attributes drawing calls use */
+    cv_link links[CV_LINKS_MAX];
+    uint8_t nlinks;
 } canvas;
 
 /* The three buffers a session needs: what the painter composed, what the
@@ -117,6 +134,11 @@ void cv_scroll(canvas *c, int32_t row, int32_t col, int32_t rows, int32_t cols, 
    part alone, which is how a box gets no bottom or sits over art. */
 void cv_box(canvas *c, int32_t row, int32_t col, int32_t rows, int32_t cols,
             const cv_text border[8]);
+
+/* Makes cols cells from (row, col) a link to url, replacing one that starts
+   at the same cell. False when the table is full or the URL is too long or
+   carries anything but printable ASCII, which would end the escape early. */
+bool cv_link_add(canvas *c, int32_t row, int32_t col, int32_t cols, cv_text url);
 
 void cv_blit(canvas *dst, int32_t row, int32_t col, const canvas *src);
 

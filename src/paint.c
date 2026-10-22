@@ -96,6 +96,29 @@ static int b_print_at(filo_ctx *ctx, const filo_value *a, uint32_t n, filo_value
     return FILO_OK;
 }
 
+/* (link-at row col text url): print-at, and the cells it drew open url when
+   clicked, where the terminal knows OSC 8. A link the table has no room for
+   is still drawn, only not clickable. */
+static int b_link_at(filo_ctx *ctx, const filo_value *a, uint32_t n, filo_value *out) {
+    if (n != 4) {
+        return filo_fail(ctx, "link-at expects a row, a column, text and a URL");
+    }
+    int32_t row = 0;
+    int32_t col = 0;
+    cv_text t = {NULL, 0};
+    cv_text url = {NULL, 0};
+    if (paint_arg_cell(ctx, &a[0], "row", &row) != FILO_OK ||
+        paint_arg_cell(ctx, &a[1], "column", &col) != FILO_OK ||
+        paint_arg_text(ctx, &a[2], &t) != FILO_OK || paint_arg_text(ctx, &a[3], &url) != FILO_OK) {
+        return FILO_ERR;
+    }
+    canvas *c = canvas_of(ctx);
+    int32_t cols = cv_put(c, row, col, t);
+    (void)cv_link_add(c, row, col, cols, url);
+    *out = filo_num(cols);
+    return FILO_OK;
+}
+
 static int rect_args(filo_ctx *ctx, const filo_value *a, int32_t *row, int32_t *col, int32_t *rows,
                      int32_t *cols) {
     if (paint_arg_cell(ctx, &a[0], "row", row) != FILO_OK ||
@@ -328,6 +351,7 @@ static int b_tag_at(filo_ctx *ctx, const filo_value *a, uint32_t n, filo_value *
 void paint_register(filo_ctx *ctx, canvas *(*canvas_fn)(filo_ctx *ctx)) {
     canvas_of = canvas_fn;
     (void)filo_register_builtin(ctx, "print-at", b_print_at);
+    (void)filo_register_builtin(ctx, "link-at", b_link_at);
     (void)filo_register_builtin(ctx, "fill", b_fill);
     (void)filo_register_builtin(ctx, "box", b_box);
     (void)filo_register_builtin(ctx, "scroll", b_scroll);

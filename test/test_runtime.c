@@ -419,6 +419,45 @@ static void test_capture_true_colour(void) {
           "the ends of the cube");
 }
 
+/* A link goes out as OSC 8 around exactly its cells and is closed before
+   anything else; a frame that drops it rewrites those cells without it even
+   though their runes did not change; a URL that could end the escape early
+   is refused. */
+static void test_links(void) {
+    term_init(&T, 20, 3);
+    cv_reset(&SHOWN, 0, 0);
+    cv_reset(&WORK, 3, 20);
+    (void)cv_put(&WORK, 0, 0, cv_cstr("git: "));
+    int32_t cols = cv_put(&WORK, 0, 5, cv_cstr("github"));
+    check(cv_link_add(&WORK, 0, 5, cols, cv_cstr("https://github.com/crgimenes")), "link added");
+    cv_flush(&T, &SHOWN, &WORK);
+    const char *out = drain();
+    check(strstr(out, "git: \x1b]8;;https://github.com/crgimenes\x1b\\github\x1b]8;;\x1b\\") !=
+              NULL,
+          "the link opens before its text and closes right after");
+
+    cv_flush(&T, &SHOWN, &WORK);
+    out = drain();
+    check(strstr(out, "]8;") == NULL, "an unchanged link is not sent again");
+
+    cv_clear(&WORK);
+    (void)cv_put(&WORK, 0, 0, cv_cstr("git: github"));
+    cv_flush(&T, &SHOWN, &WORK);
+    out = drain();
+    check(strstr(out, "github") != NULL && strstr(out, "]8;;h") == NULL,
+          "cells that lose their link are rewritten plain");
+
+    check(!cv_link_add(&WORK, 1, 0, 3, cv_cstr("https://x\x1b]0;evil")), "no escape in a URL");
+    check(!cv_link_add(&WORK, 1, 0, 3, cv_cstr("")), "no empty URL");
+    int i = 0;
+    while (i < CV_LINKS_MAX) {
+        check(cv_link_add(&WORK, 2, i, 1, cv_cstr("https://a")), "room for every link");
+        i++;
+    }
+    check(!cv_link_add(&WORK, 1, 0, 1, cv_cstr("https://b")), "a full table says so");
+    check(cv_link_add(&WORK, 2, 0, 1, cv_cstr("https://c")), "the same cell replaces its link");
+}
+
 int main(void) {
     test_box_and_bar();
     test_output_and_width();
@@ -430,6 +469,7 @@ int main(void) {
     test_size_has_a_ceiling();
     test_cell_packs_into_one_word();
     test_capture_true_colour();
+    test_links();
     if (NFAIL > 0) {
         printf("%zu runtime checks failed\n", NFAIL);
         return 1;
