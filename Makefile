@@ -8,6 +8,9 @@ CC ?= cc
 CLANG_FORMAT ?= clang-format
 CLANG_TIDY ?= clang-tidy
 FILO ?= ../clang_filo
+# LLVM's coverage tools matching $(CC): Xcode's through xcrun on a Mac
+LLVM_PROFDATA ?= xcrun llvm-profdata
+LLVM_COV ?= xcrun llvm-cov
 
 WARN = -Wall -Wextra -Werror -Wshadow -Wconversion -Wdouble-promotion -Wundef
 # C11: programs build these as C11 and the BBS as C23, so they are held to
@@ -23,7 +26,7 @@ OBJ = $(patsubst src/%.c,build/%.o,$(SRC))
 # which no libc this builds on has: off, as in Filo's own gate.
 TIDY_CHECKS = bugprone-*,cert-*,clang-analyzer-*,readability-*,-readability-identifier-length,-readability-function-cognitive-complexity,-readability-magic-numbers,-cert-err33-c,-readability-else-after-return,-readability-simplify-boolean-expr,-bugprone-easily-swappable-parameters,-clang-analyzer-optin.performance.Padding,-clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling
 
-.PHONY: all test fmt fmt-check tidy check qa clean
+.PHONY: all test fuzz cov fmt fmt-check tidy check qa clean
 
 all: $(OBJ)
 
@@ -43,11 +46,33 @@ test: test/test_runtime.c test/test_app.c $(SRC) $(HDRS)
 		-o build/test_app $(APPSRC) $(FILOSRC) test/test_app.c
 	./build/test_app
 
+# Needs a clang with libFuzzer (LLVM=/path/bin where the system's has none).
+LLVM ?= /opt/homebrew/opt/llvm/bin
+FUZZ_SECONDS ?= 60
+fuzz: fuzz/fuzz_keyin.c src/keyin.c src/utf8.c $(HDRS)
+	@mkdir -p build/fuzz_keyin_corpus
+	$(LLVM)/clang -O1 -g -fsanitize=fuzzer,address,undefined -fno-sanitize-recover=all $(FLAGS) \
+		-o build/fuzz_keyin src/keyin.c src/utf8.c fuzz/fuzz_keyin.c
+	./build/fuzz_keyin -max_total_time=$(FUZZ_SECONDS) -timeout=10 -max_len=256 build/fuzz_keyin_corpus
+
+# Line coverage of the two test binaries: build/cov/cov.txt per file.
+cov: test/test_runtime.c test/test_app.c $(SRC) $(HDRS)
+	@rm -rf build/cov && mkdir -p build/cov
+	$(CC) -O1 -g -fprofile-instr-generate -fcoverage-mapping $(FLAGS) \
+		-DFT_CFG_TB_UNDO=512 -o build/cov/test_runtime src/term.c src/canvas.c src/utf8.c src/tbuf.c test/test_runtime.c
+	$(CC) -O1 -g -fprofile-instr-generate -fcoverage-mapping $(FLAGS) \
+		-o build/cov/test_app $(APPSRC) $(FILOSRC) test/test_app.c
+	LLVM_PROFILE_FILE=build/cov/runtime.profraw ./build/cov/test_runtime > /dev/null
+	LLVM_PROFILE_FILE=build/cov/app.profraw ./build/cov/test_app > /dev/null
+	$(LLVM_PROFDATA) merge -sparse -o build/cov/all.profdata build/cov/runtime.profraw build/cov/app.profraw
+	$(LLVM_COV) report -instr-profile=build/cov/all.profdata build/cov/test_runtime -object build/cov/test_app \
+		$(SRC) | tee build/cov/cov.txt | tail -1
+
 fmt:
-	$(CLANG_FORMAT) -i src/*.c src/*.h test/*.c tools/*.c
+	$(CLANG_FORMAT) -i src/*.c src/*.h test/*.c fuzz/*.c tools/*.c
 
 fmt-check:
-	$(CLANG_FORMAT) --dry-run --Werror src/*.c src/*.h test/*.c tools/*.c
+	$(CLANG_FORMAT) --dry-run --Werror src/*.c src/*.h test/*.c fuzz/*.c tools/*.c
 
 tidy:
 	$(CLANG_TIDY) --quiet --warnings-as-errors='*' --checks='$(TIDY_CHECKS)' \

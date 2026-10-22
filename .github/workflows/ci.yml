@@ -30,6 +30,35 @@ jobs:
 
   # Format and the two static analyzers, warnings as errors, with the LLVM
   # the local make qa runs (their checks change between versions).
+  # Any byte string is what a terminal sends: libFuzzer on the key decoder,
+  # with LLVM's clang (the runner's has no libFuzzer). A regression smoke.
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: filo-term
+      - uses: actions/checkout@v4
+        with:
+          repository: crgimenes/clang_filo
+          path: clang_filo
+      - name: Install tools
+        run: |
+          wget -qO llvm.sh https://apt.llvm.org/llvm.sh
+          sudo bash llvm.sh 23
+      - run: make -C filo-term fuzz LLVM=/usr/lib/llvm-23/bin FUZZ_SECONDS=60
+      - name: Upload findings
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-findings
+          path: |
+            filo-term/crash-*
+            filo-term/timeout-*
+            filo-term/leak-*
+          if-no-files-found: ignore
+
   lint:
     runs-on: ubuntu-latest
     timeout-minutes: 15
