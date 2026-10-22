@@ -470,7 +470,7 @@ static void load(const char *s) {
     pager_load(&P, (const uint8_t *)s, strlen(s));
 }
 
-static size_t count(const char *s, const char *sub) {
+static size_t occurrences(const char *s, const char *sub) {
     size_t n = 0;
     size_t k = strlen(sub);
     for (const char *c = s; (c = strstr(c, sub)) != NULL; c += k) {
@@ -597,7 +597,7 @@ static void test_pager_wraps_styles(void) {
     }
     check(styled > 0, "a row starting inside bold records it");
     check(linked > 0, "a row starting inside a link records it");
-    check(count(o, "\x1b]8;;https://example.com/\x1b\\") == 2,
+    check(occurrences(o, "\x1b]8;;https://example.com/\x1b\\") == 2,
           "the link is reopened where the row starts");
     check(strstr(o, "\x1b[0m\x1b[1m") != NULL, "the bold is reopened where the row starts");
 
@@ -817,9 +817,9 @@ static void test_md_blocks(void) {
     check(strcmp(o, "\x1b[0;2m\xe2\x94\x82\x1b[0m \x1b[0;2;3mquoted\x1b[0m\n") == 0,
           "a quote has its bar and is dim italic");
     o = render(true, "---\n");
-    check(count(o, "\xe2\x94\x80") == MD_RULE_WIDTH && strstr(o, "\x1b[0;2m") == o,
+    check(occurrences(o, "\xe2\x94\x80") == MD_RULE_WIDTH && strstr(o, "\x1b[0;2m") == o,
           "a rule is a fixed run");
-    check(count(render(true, "***\n___\n"), "\xe2\x94\x80") == 2 * MD_RULE_WIDTH,
+    check(occurrences(render(true, "***\n___\n"), "\xe2\x94\x80") == 2 * MD_RULE_WIDTH,
           "stars and underscores rule too");
     check(strcmp(render(true, "a\n\nb\n"), "\x1b[0ma\x1b[0m\n\n\x1b[0mb\x1b[0m\n") == 0,
           "a blank line stays blank");
@@ -940,7 +940,7 @@ static void test_md_long_line(void) {
     line[sizeof(line) - 1] = '\0';
     R.base = "";
     const char *o = render(true, line);
-    check(count(o, "a") == sizeof(line) - 2, "a line past the buffer comes out whole");
+    check(occurrences(o, "a") == sizeof(line) - 2, "a line past the buffer comes out whole");
     check(o[strlen(o) - 1] == '\n', "and ends");
 }
 
