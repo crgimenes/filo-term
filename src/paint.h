@@ -21,4 +21,12 @@ int paint_arg_cell(filo_ctx *ctx, const filo_value *v, const char *what, int32_t
 int paint_arg_text(filo_ctx *ctx, const filo_value *v, cv_text *out);
 int paint_arg_color(filo_ctx *ctx, const filo_value *v, int16_t *out);
 
+/* (report-score value [track]): a game's result as it ends, for whatever
+   board keeps scores (a host with none ignores it). value is a whole number
+   from 0; track, when a game has more than one board (a level), is up to
+   PAINT_TRACK_MAX - 1 letters a-z and digits. */
+enum { PAINT_TRACK_MAX = 16 };
+int paint_arg_score(filo_ctx *ctx, const filo_value *a, uint32_t n, int32_t *value,
+                    char track[PAINT_TRACK_MAX]);
+
 #endif

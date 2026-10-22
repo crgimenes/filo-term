@@ -6,6 +6,7 @@
 
 #include "app.h"
 #include "keys.h"
+#include "paint.h"
 
 enum { SRC_MAX = 8, UNIT_CAP = 64 * 1024 };
 
@@ -141,6 +142,47 @@ static void test_click(void) {
     static const char sgr[] = "\x1b[<0;10;3M";
     app_input(&A, (const uint8_t *)sgr, sizeof(sgr) - 1);
     check(strstr(row(0), "click 9,2") != NULL, "a click names its cell");
+}
+
+static char score_track[PAINT_TRACK_MAX];
+static int32_t score_value = -1;
+
+static void took_score(app *a, const char *track, int32_t value) {
+    (void)a;
+    snprintf(score_track, sizeof(score_track), "%s", track);
+    score_value = value;
+}
+
+/* report-score hands a game's result to the host that keeps scores, with
+   its track when it has one; without such a host it is quietly #f; a score
+   that is no whole number from 0, or a track that is not a short word, is
+   the program's error. */
+static void test_report_score(void) {
+    static const entry_src p[] = {
+        {"init", "(def said \"\")"},
+        {"draw", "(print-at 0 0 said)"},
+        {"key", "(cond ((= KEY 97) (set said (string (report-score 42)))) "
+                "((= KEY 98) (report-score 7 \"level3\")) "
+                "((= KEY 99) (report-score -1)) "
+                "((= KEY 100) (report-score 1 \"Level 3\")) (else #t))"},
+    };
+    check(build(p, 3), "builds a scoring one");
+    check(start(), "starts a scoring one");
+    key('a');
+    check(strstr(row(0), "#f") != NULL, "no host that keeps scores: #f");
+    A.score = took_score;
+    key('a');
+    check(score_value == 42 && score_track[0] == '\0', "the host takes the score");
+    check(strstr(row(0), "#t") != NULL, "and says so");
+    key('b');
+    check(score_value == 7 && strcmp(score_track, "level3") == 0, "a track goes with it");
+    score_value = -1;
+    key('c');
+    check(score_value == -1 && A.error[0] != '\0', "no negative score");
+    A.error[0] = '\0';
+    key('d');
+    check(score_value == -1 && A.error[0] != '\0', "a track is a short word");
+    A.score = NULL;
 }
 
 /* input-set seeds the field, and inside the input entry what it put
@@ -379,6 +421,7 @@ int main(void) {
     test_refuses_missing();
     test_profile();
     test_click();
+    test_report_score();
     if (nfail > 0) {
         printf("%zu app tests failed\n", nfail);
         return 1;

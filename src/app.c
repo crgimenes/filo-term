@@ -207,6 +207,20 @@ static int b_done(filo_ctx *ctx, const filo_value *a, uint32_t n, filo_value *ou
     return FILO_OK;
 }
 
+static int b_report_score(filo_ctx *ctx, const filo_value *a, uint32_t n, filo_value *out) {
+    int32_t value = 0;
+    char track[PAINT_TRACK_MAX];
+    if (paint_arg_score(ctx, a, n, &value, track) != FILO_OK) {
+        return FILO_ERR;
+    }
+    app *p = app_of(ctx);
+    if (p->score != NULL) {
+        p->score(p, track, value);
+    }
+    *out = filo_bool(p->score != NULL);
+    return FILO_OK;
+}
+
 /* ---- running the program ---- */
 
 static void set_num(app *a, const char *name, double v) {
@@ -520,6 +534,7 @@ bool app_context(app *a, const app_spec *spec, char *why, size_t cap) {
     (void)filo_register_builtin(&a->ctx, "clipboard", b_clipboard);
     (void)filo_register_builtin(&a->ctx, "random", b_random);
     (void)filo_register_builtin(&a->ctx, "keep-canvas", b_keep_canvas);
+    (void)filo_register_builtin(&a->ctx, "report-score", b_report_score);
     /* a full table refuses the last ones first: this one standing means
        they all do */
     if (filo_register_builtin(&a->ctx, "done", b_done) != FILO_OK) {

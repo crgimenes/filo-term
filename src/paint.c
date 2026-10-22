@@ -32,6 +32,41 @@ int paint_arg_whole(filo_ctx *ctx, const filo_value *v, const char *what, int32_
     return FILO_OK;
 }
 
+int paint_arg_score(filo_ctx *ctx, const filo_value *a, uint32_t n, int32_t *value,
+                    char track[PAINT_TRACK_MAX]) {
+    track[0] = '\0';
+    if (n != 1 && n != 2) {
+        return filo_fail(ctx, "report-score expects a score and maybe a track");
+    }
+    if (paint_arg_whole(ctx, &a[0], "score", value) != FILO_OK) {
+        return FILO_ERR;
+    }
+    if (*value < 0) {
+        return filo_fail(ctx, "a score is 0 or more");
+    }
+    if (n == 1) {
+        return FILO_OK;
+    }
+    cv_text t = {NULL, 0};
+    if (paint_arg_text(ctx, &a[1], &t) != FILO_OK) {
+        return FILO_ERR;
+    }
+    if (t.len == 0 || t.len >= PAINT_TRACK_MAX) {
+        return filo_fail(ctx, "a track is 1 to 15 letters and digits");
+    }
+    size_t i = 0;
+    while (i < t.len) {
+        uint8_t c = t.ptr[i];
+        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9'))) {
+            return filo_fail(ctx, "a track is 1 to 15 letters and digits");
+        }
+        track[i] = (char)c;
+        i++;
+    }
+    track[t.len] = '\0';
+    return FILO_OK;
+}
+
 /* A coordinate or a size names a cell, and half a column does not exist, so
    it takes the cell the position falls in. Centring divides by two and
    placing by three, and which of those come out whole depends on the size of

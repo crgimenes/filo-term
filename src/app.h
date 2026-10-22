@@ -22,7 +22,8 @@
 
    Every program gets the same base, on every host that runs one: the core,
    strings and the math computed without libm; paint; input-at,
-   input-text, input-set, cursor-at, clipboard, random, keep-canvas, done;
+   input-text, input-set, cursor-at, clipboard, random, keep-canvas, done,
+   report-score;
    and the
    globals W, H, KEY, MS, FRESH, ARG, VERSION, A_BOLD, A_DIM, A_REV,
    C_DEFAULT and KEY_*. What a program needs past that it registers itself
@@ -69,6 +70,8 @@ struct app {
     void *user;
     const char *arg; /* ARG; NULL is "" */
     uint64_t seed;   /* random's stream */
+    /* report-score's, for a host that keeps scores; NULL ignores them */
+    void (*score)(app *a, const char *track, int32_t value);
 
     const app_spec *spec;
     filo_ctx ctx;
