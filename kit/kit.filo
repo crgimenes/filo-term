@@ -553,12 +553,16 @@
     (print-at (+ top rows) (+ left 1) (str-join "" (map (fn (i) "▒") (range cols))))
     (pen-off)))
 
-; A frame whose title is in the gradient: the frame of an art screen.
+; The board's frame: the title in the gradient, and the shade it casts
+; (a row below it and a column right of it, so whatever follows the frame
+; starts a row lower). The plain frame above stays for apps that frame the
+; whole screen, where a shade would fall off it.
 (def frame-art
   (fn (top left rows cols title colours)
     (frame top left rows cols title)
     (attr A_BOLD)
-    (grad-print top (+ left 3) title colours)))
+    (grad-print top (+ left 3) title colours)
+    (frame-shadow top left rows cols)))
 
 (def LOGO_FACE "█▀▄▌▐▓▒░")
 (def logo-draw
