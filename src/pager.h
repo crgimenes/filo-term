@@ -51,6 +51,10 @@ typedef struct {
     size_t lastlen;
     bool typing;
     bool not_found;
+    /* blank columns on each side of the text, set after pager_reset by
+       whoever shows a document (an article reads badly glued to the
+       edges); one on a narrow screen, none on a tiny one */
+    uint8_t margin;
 } pager;
 
 void pager_reset(pager *p, const char *name);

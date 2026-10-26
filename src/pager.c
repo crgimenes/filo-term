@@ -16,6 +16,7 @@ void pager_reset(pager *p, const char *name) {
     p->lastlen = 0;
     p->typing = false;
     p->not_found = false;
+    p->margin = 0;
     size_t n = strlen(name);
     if (n >= sizeof(p->name)) {
         n = sizeof(p->name) - 1;
@@ -263,8 +264,18 @@ static size_t wrap_line(pager *p, size_t off, size_t cols) {
     return i;
 }
 
+enum { PAGER_NARROW = 60, PAGER_TINY = 20 };
+
+/* The margin the screen can spare: a phone's forty columns keep one. */
+static size_t margin_of(const pager *p, const term *t) {
+    if (p->margin == 0 || t->cols < PAGER_TINY) {
+        return 0;
+    }
+    return t->cols < PAGER_NARROW ? 1 : p->margin;
+}
+
 static void pager_wrap(pager *p, const term *t) {
-    size_t cols = t->cols > 2 ? t->cols : 2;
+    size_t cols = t->cols > 2 ? t->cols - (2 * margin_of(p, t)) : 2;
     p->nrows = 0;
     p->sgr = 0;
     p->link = 0;
@@ -464,6 +475,7 @@ static void paint_status(const pager *p, term *t) {
 
 static void paint(const pager *p, term *t) {
     size_t vis = visible_rows(t);
+    size_t margin = margin_of(p, t);
     term_puts(t, "\x1b[H");
     size_t i = 0;
     while (i < vis) {
@@ -471,7 +483,7 @@ static void paint(const pager *p, term *t) {
         if (idx < p->nrows) {
             const pager_row *row = &p->rows[idx];
             term_puts(t, "\x1b[0m");
-            term_put_spaces(t, row->indent);
+            term_put_spaces(t, margin + row->indent);
             if (row->link > 0) {
                 term_write(t, p->text + row->link - 1, esc_len(p, row->link - 1));
             }

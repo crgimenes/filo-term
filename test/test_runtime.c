@@ -544,6 +544,38 @@ static void test_pager_scrolls(void) {
     check(!pager_key(&P, &T, FT_KEY_ESC), "Esc closes");
 }
 
+/* A document's margin: the text wraps inside it and every row starts past
+   it; a phone keeps one column, a tiny screen none, the status the width. */
+static void test_pager_margin(void) {
+    static char line[102];
+    memset(line, 'a', 100);
+    line[100] = '\n';
+    line[101] = '\0';
+    term_init(&T, 80, 24);
+    pager_reset(&P, "doc.md");
+    check(P.margin == 0, "a reset pager has no margin");
+    P.margin = 2;
+    load(line);
+    pager_show(&P, &T);
+    const char *s = drain();
+    check(P.rows[0].len == 76 && P.rows[1].off == 76,
+          "the text wraps at the width less both margins");
+    check(strstr(s, "\x1b[0m  aaaa") != NULL, "a row starts past the margin");
+    check(strstr(s, "\x1b[7m doc.md") != NULL, "the status keeps the whole width");
+
+    term_resize(&T, 40, 24);
+    pager_resize(&P, &T);
+    (void)drain();
+    check(P.rows[0].len == 38, "a narrow screen keeps one column each side");
+
+    term_resize(&T, 16, 24);
+    pager_resize(&P, &T);
+    (void)drain();
+    check(P.rows[0].len == 16, "a tiny one keeps none");
+    pager_reset(&P, "x");
+    check(P.margin == 0, "and the next text starts without one");
+}
+
 static void test_pager_wraps_and_resizes(void) {
     static char line[202];
     memset(line, 'a', 100);
@@ -1065,6 +1097,7 @@ int main(void) {
     test_pager_loads_and_shows();
     test_pager_scrolls();
     test_pager_wraps_and_resizes();
+    test_pager_margin();
     test_pager_wraps_styles();
     test_pager_hangs_lists();
     test_pager_searches();
