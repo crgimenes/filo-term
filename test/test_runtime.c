@@ -362,6 +362,22 @@ static void test_app_mouse_follows_the_top(void) {
 
     check(term_app_enter(&T, &reader_app, &reader), "a reader alone");
     check(!T.mouse && strstr(drain(), "\x1b[?1000h") == NULL, "never asks for the clicks");
+    (void)term_app_leave(&T);
+    (void)drain();
+
+    /* one app running programs learns each one's wish from the program */
+    term_app_mouse(&T, false);
+    check(!T.mouse && term_out_pending(&T) == 0, "with no app up there is no one to tell");
+    check(term_app_enter(&T, &TOY_APP, &menu), "a menu");
+    check(term_app_enter(&T, &TOY_APP, &reader), "a host of programs over it");
+    (void)drain();
+    term_app_mouse(&T, false);
+    check(!T.mouse && strstr(drain(), "\x1b[?1000l") != NULL,
+          "its program answers no click: the drag selects");
+    term_app_mouse(&T, false);
+    check(term_out_pending(&T) == 0, "said once");
+    check(!term_app_leave(&T), "it closes");
+    check(T.mouse && strstr(drain(), "\x1b[?1000h") != NULL, "the menu below kept its own wish");
 }
 
 /* The ceiling: past it the grid stops growing instead of being clipped, so

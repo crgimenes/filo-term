@@ -60,6 +60,7 @@ typedef struct term {
        the session (a shell, a firmware's main loop) has the keys. */
     const term_app *apps[TERM_APPS_MAX];
     void *ctxs[TERM_APPS_MAX];
+    bool clicks[TERM_APPS_MAX]; /* each app's wish: its selects, or term_app_mouse */
     size_t napps;
     char note[TERM_NOTE_MAX]; /* one line the app on top shows */
 
@@ -103,6 +104,11 @@ bool term_app_enter(term *t, const term_app *app, void *ctx);
 /* Pops the top app. True when the stack emptied, which is when the
    terminal was restored and the caller has the keys back. */
 bool term_app_leave(term *t);
+
+/* The app on top takes clicks, or leaves the drag to the terminal, after
+   all: a host that runs programs in one app learns it from the program it
+   loaded (an editor that answers no click). Nothing when no app is up. */
+void term_app_mouse(term *t, bool clicks);
 
 const term_app *term_app_top(const term *t);
 void *term_app_ctx(const term *t);

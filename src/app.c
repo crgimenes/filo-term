@@ -14,6 +14,7 @@
 #endif
 
 static const term_app core;
+static const term_app core_selects;
 
 app *app_of(filo_ctx *ctx) {
     return ctx->host.user;
@@ -273,7 +274,11 @@ static bool has(const app *a, const char *entry) {
 }
 
 static bool on_top(const app *a) {
-    return term_app_top(&a->t) == &core;
+    const term_app *top = term_app_top(&a->t);
+    if (top == &core_selects) {
+        return true;
+    }
+    return top == &core;
 }
 
 static void paint(app *a) {
@@ -385,6 +390,14 @@ static const term_app core = {
     .on_tick = core_tick,
 };
 
+/* the same, for a program whose init set MOUSE #f */
+static const term_app core_selects = {
+    .on_key = core_key,
+    .on_resize = core_resize,
+    .on_tick = core_tick,
+    .selects = true,
+};
+
 void app_repaint(app *a) {
     a->shown.rows = 0; /* whatever the terminal holds now is not to be trusted */
     a->fresh = true;
@@ -493,6 +506,9 @@ static void globals(app *a) {
     set_num(a, "W", a->t.cols);
     set_num(a, "H", a->t.rows);
     (void)filo_set_global(&a->ctx, "FRESH", filo_bool(true));
+    /* a program that answers no click redefines it #f in its init, and a
+       drag over it selects text as the terminal does */
+    (void)filo_set_global(&a->ctx, "MOUSE", filo_bool(true));
     (void)filo_set_global(&a->ctx, "ARG", filo_cstring(a->arg != NULL ? a->arg : ""));
     (void)filo_set_global(&a->ctx, "VERSION",
                           filo_cstring(a->spec->version != NULL ? a->spec->version : ""));
@@ -586,7 +602,12 @@ bool app_start(app *a, const app_spec *spec, const uint8_t *fbb, size_t fbb_len,
     /* From here the program's names are all there are: one typed wrong in
        a later edit fails loudly instead of making a new global. */
     filo_seal_globals(&a->ctx);
-    if (!term_app_enter(&a->t, &core, a)) {
+    const term_app *face = &core;
+    filo_value mouse = {0};
+    if (filo_get_global(&a->ctx, "MOUSE", &mouse) && mouse.kind == FILO_BOOL && !mouse.u.b) {
+        face = &core_selects;
+    }
+    if (!term_app_enter(&a->t, face, a)) {
         return fail(why, cap, spec->name, ": ", "no room for the program on the terminal");
     }
     term_puts(&a->t, "\x1b[H\x1b[2J");

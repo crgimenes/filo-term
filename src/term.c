@@ -62,7 +62,7 @@ size_t term_out_read(term *t, uint8_t *dst, size_t max) {
    below every app, leave the mouse to the terminal. */
 static void mouse_follow(term *t) {
     bool want = false;
-    if (t->napps > 0 && !t->apps[t->napps - 1]->selects) {
+    if (t->napps > 0 && t->clicks[t->napps - 1]) {
         want = true;
     }
     if (want == t->mouse) {
@@ -70,6 +70,14 @@ static void mouse_follow(term *t) {
     }
     term_puts(t, want ? "\x1b[?1000h\x1b[?1006h" : "\x1b[?1006l\x1b[?1000l");
     t->mouse = want;
+}
+
+void term_app_mouse(term *t, bool clicks) {
+    if (t->napps == 0) {
+        return;
+    }
+    t->clicks[t->napps - 1] = clicks;
+    mouse_follow(t);
 }
 
 bool term_app_enter(term *t, const term_app *app, void *ctx) {
@@ -85,6 +93,10 @@ bool term_app_enter(term *t, const term_app *app, void *ctx) {
     }
     t->apps[t->napps] = app;
     t->ctxs[t->napps] = ctx;
+    t->clicks[t->napps] = true;
+    if (app->selects) {
+        t->clicks[t->napps] = false;
+    }
     t->napps++;
     mouse_follow(t);
     return true;

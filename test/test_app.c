@@ -162,6 +162,26 @@ static void test_click(void) {
     check(strstr(row(0), "click 9,2") != NULL, "a click names its cell");
 }
 
+/* A program that answers no click says so with MOUSE in its init: the
+   terminal is not asked for clicks, and a drag over it selects text. */
+static void test_mouse_declared(void) {
+    static const entry_src clicks[] = {
+        {"init", "(def at 0)"},
+        {"draw", "(print-at 0 0 \"menu\")"},
+    };
+    check(build(clicks, 2), "builds a program that keeps MOUSE");
+    check(start(), "starts it");
+    check(A.t.mouse && strstr(drain(), "\x1b[?1000h") != NULL,
+          "by default the clicks are asked for");
+    static const entry_src text[] = {
+        {"init", "(def MOUSE #f)"},
+        {"draw", "(print-at 0 0 \"text\")"},
+    };
+    check(build(text, 2), "builds an editor-like program");
+    check(start(), "starts it");
+    check(!A.t.mouse && strstr(drain(), "\x1b[?1000h") == NULL, "MOUSE #f: never asked for");
+}
+
 static char score_track[PAINT_TRACK_MAX];
 static int32_t score_value = -1;
 
@@ -1153,6 +1173,7 @@ int main(void) {
     test_refuses_missing();
     test_profile();
     test_click();
+    test_mouse_declared();
     test_report_score();
     test_tbx_lines();
     test_tbx_dirty();
