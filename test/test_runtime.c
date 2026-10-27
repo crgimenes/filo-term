@@ -229,7 +229,7 @@ static void toy_resize(void *ctx) {
     a->repaints++;
 }
 
-static const term_app TOY_APP = {toy_key, toy_resize, NULL};
+static const term_app TOY_APP = {.on_key = toy_key, .on_resize = toy_resize};
 
 /* The line table against one rebuilt from the text. */
 static bool lines_hold(const tbuf *t) {
@@ -333,6 +333,35 @@ static void test_app_stack(void) {
         i++;
     }
     check(!term_app_enter(&T, &TOY_APP, &menu), "a full stack refuses instead of overflowing");
+}
+
+/* Clicks are reported while the app on top wants them; a reader over a
+   menu leaves the mouse to the terminal so a drag selects, and the menu
+   takes it back when the reader closes. */
+static void test_app_mouse_follows_the_top(void) {
+    static const term_app reader_app = {
+        .on_key = toy_key, .on_resize = toy_resize, .selects = true};
+    static toy menu, reader;
+    menu = (toy){'m', 0, 0};
+    reader = (toy){'r', 0, 0};
+    term_init(&T, 40, 8);
+    (void)drain();
+
+    check(term_app_enter(&T, &TOY_APP, &menu), "a menu enters");
+    check(T.mouse && strstr(drain(), "\x1b[?1000h\x1b[?1006h") != NULL, "a menu gets the clicks");
+    check(term_app_enter(&T, &reader_app, &reader), "a reader over it");
+    check(!T.mouse && strstr(drain(), "\x1b[?1006l\x1b[?1000l") != NULL,
+          "a reader leaves the drag to the terminal");
+    check(!term_app_leave(&T), "the reader closes");
+    check(T.mouse && strstr(drain(), "\x1b[?1000h") != NULL, "the menu has the clicks again");
+    check(term_app_enter(&T, &TOY_APP, &menu), "another menu over it");
+    check(strstr(drain(), "\x1b[?1000h") == NULL, "already reported: nothing said twice");
+    (void)term_app_leave(&T);
+    check(term_app_leave(&T), "the last app leaves");
+    check(!T.mouse && strstr(drain(), "\x1b[?1000l") != NULL, "the prompt selects as terminals do");
+
+    check(term_app_enter(&T, &reader_app, &reader), "a reader alone");
+    check(!T.mouse && strstr(drain(), "\x1b[?1000h") == NULL, "never asks for the clicks");
 }
 
 /* The ceiling: past it the grid stops growing instead of being clipped, so
@@ -1090,6 +1119,7 @@ int main(void) {
     test_tbuf_undo();
     test_tbuf_lines_follow_edits();
     test_app_stack();
+    test_app_mouse_follows_the_top();
     test_size_has_a_ceiling();
     test_cell_packs_into_one_word();
     test_capture_true_colour();

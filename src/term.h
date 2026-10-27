@@ -36,6 +36,9 @@ typedef struct {
     void (*on_key)(void *ctx, uint32_t cp);
     void (*on_resize)(void *ctx);
     void (*on_tick)(void *ctx, uint32_t ms);
+    /* no use for clicks (a reader): while it is on top the terminal keeps
+       the mouse, so a drag selects text to copy; the wheel still scrolls */
+    bool selects;
 } term_app;
 
 typedef struct term {
@@ -51,6 +54,7 @@ typedef struct term {
     /* the cell of the last click (FT_KEY_CLICK), 0-based */
     uint16_t mouse_col;
     uint16_t mouse_row;
+    bool mouse; /* clicks are being reported: the app on top wants them */
 
     /* The app stack: menu over area over reader. Empty means whoever owns
        the session (a shell, a firmware's main loop) has the keys. */

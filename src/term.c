@@ -57,14 +57,27 @@ size_t term_out_read(term *t, uint8_t *dst, size_t max) {
     return n;
 }
 
+/* Clicks are reported while the app on top takes them. A terminal that
+   reports them stops selecting on a drag, so a reader, and the prompt
+   below every app, leave the mouse to the terminal. */
+static void mouse_follow(term *t) {
+    bool want = false;
+    if (t->napps > 0 && !t->apps[t->napps - 1]->selects) {
+        want = true;
+    }
+    if (want == t->mouse) {
+        return;
+    }
+    term_puts(t, want ? "\x1b[?1000h\x1b[?1006h" : "\x1b[?1006l\x1b[?1000l");
+    t->mouse = want;
+}
+
 bool term_app_enter(term *t, const term_app *app, void *ctx) {
     if (t->napps >= TERM_APPS_MAX) {
         return false;
     }
     if (t->napps == 0) {
-        /* pastes arrive marked and clicks reported while an app is up; at the
-           prompt a drag keeps selecting text, so the mouse goes back there */
-        term_puts(t, "\x1b[?2004h\x1b[?1000h\x1b[?1006h");
+        term_puts(t, "\x1b[?2004h"); /* pastes arrive marked while an app is up */
     }
     if (!t->alt) {
         term_puts(t, "\x1b[?1049h"); /* the stack owns the alternate screen */
@@ -73,6 +86,7 @@ bool term_app_enter(term *t, const term_app *app, void *ctx) {
     t->apps[t->napps] = app;
     t->ctxs[t->napps] = ctx;
     t->napps++;
+    mouse_follow(t);
     return true;
 }
 
@@ -81,8 +95,10 @@ bool term_app_leave(term *t) {
         t->napps--;
     }
     if (t->napps > 0) {
+        mouse_follow(t);
         return false;
     }
+    t->mouse = false; /* the reset below turns the reports off */
     /* leave no attribute behind: SGR, cursor visibility and wheel mode all
        survive the buffer switch and would bleed into whatever had the
        terminal before. */
